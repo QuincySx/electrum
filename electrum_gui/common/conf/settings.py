@@ -3,15 +3,6 @@ from os import path
 from electrum_gui.common.coin import codes
 from electrum_gui.common.conf.utils import get_data_dir
 
-IS_DEV = False
-try:
-    from electrum import constants
-
-    if constants.net.NET != "Bitcoin":
-        IS_DEV = True
-except ImportError:
-    pass
-
 PROJECT_DIR = path.dirname(path.dirname(path.dirname(path.dirname(path.abspath(__file__)))))
 DATA_DIR = get_data_dir()
 
@@ -45,22 +36,11 @@ DB_MODULES = [
     "electrum_gui.common.transaction",
 ]
 
-ENABLED_CHAIN_COINS = (
-    [
-        codes.TBTC,
-        codes.TETH,
-        codes.TBSC,
-        codes.THECO,
-    ]
-    if IS_DEV
-    else [
-        codes.BTC,
-        codes.ETH,
-        codes.BSC,
-        codes.HECO,
-    ]
-)
-
+ENABLED_CHAIN_COINS = [
+    codes.ETH,
+    codes.BSC,
+    codes.HECO,
+]  # TODO enable specific test coin on dev env?
 
 PRICING_COIN_MAPPING = {
     codes.TBTC: codes.BTC,
