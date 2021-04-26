@@ -983,7 +983,9 @@ class AndroidCommands(commands.Commands):
 
         for val in estimate_gas_prices.values():
             val["gas_limit"] = gas_limit
-            val["fee"] = eth_utils.from_wei(gas_limit * eth_utils.to_wei(val["gas_price"], "gwei"), "ether")
+            val["fee"] = self.pywalib.web3.fromWei(
+                gas_limit * self.pywalib.web3.toWei(val["gas_price"], "gwei"), "ether"
+            )
             val["fiat"] = f"{self.daemon.fx.ccy_amount_str(Decimal(val['fee']) * last_price, True)} {self.ccy}"
 
         return estimate_gas_prices
@@ -2364,8 +2366,10 @@ class AndroidCommands(commands.Commands):
 
         signed_tx_hex = self.sign_eth_tx(
             to_addr=transaction["to"],
-            value=eth_utils.from_wei(transaction["value"], "ether") if transaction.get("value") else 0,
-            gas_price=eth_utils.from_wei(transaction["gasPrice"], "gwei") if transaction.get("gasPrice") else None,
+            value=self.pywalib.web3.fromWei(transaction["value"], "ether") if transaction.get("value") else 0,
+            gas_price=self.pywalib.web3.fromWei(transaction["gasPrice"], "gwei")
+            if transaction.get("gasPrice")
+            else None,
             gas_limit=transaction.get("gas"),
             data=transaction.get("data"),
             nonce=transaction.get("nonce"),
@@ -2388,7 +2392,7 @@ class AndroidCommands(commands.Commands):
         else:
             message_bytes = message.encode()
 
-        return eth_utils.keccak(message_bytes).hex()
+        return PyWalib.web3.keccak(message_bytes).hex()
 
     def sign_tx(self, tx, path=None, password=None):
         """
@@ -3260,7 +3264,7 @@ class AndroidCommands(commands.Commands):
                             address_info = None
 
                         if address_info and address_info.existing:
-                            main_coin_balance = Decimal(eth_utils.from_wei(address_info.balance, "ether"))
+                            main_coin_balance = Decimal(self.pywalib.web3.fromWei(address_info.balance, "ether"))
                             fiat_price = price_manager.get_last_price(coin, self.ccy)
                             fiat_str = self.daemon.fx.ccy_amount_str(main_coin_balance * fiat_price, True)
                             balance = f"{main_coin_balance} ({fiat_str} {self.ccy})"
