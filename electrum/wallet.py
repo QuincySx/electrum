@@ -429,9 +429,8 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
             if self.lnworker:
                 self.lnworker.stop()
                 self.lnworker = None
-            if self.lnbackups:
-                self.lnbackups.stop()
-                self.lnbackups = None
+            self.lnbackups.stop()
+            self.lnbackups = None
         self.save_db()
 
     def set_up_to_date(self, b):
