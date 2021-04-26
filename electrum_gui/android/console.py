@@ -3513,9 +3513,9 @@ class AndroidCommands(commands.Commands):
         if account_id == 0:
             purpose = int(helpers.get_path_info(bip39_derivation, PURPOSE_POS))
             if purpose == 49:
-                name = "BTC"
+                name = "BTC-1"
             elif coin in self.coins:
-                name = "%s" % coin.upper()
+                name = "%s-1" % coin.upper()
             else:
                 name = "btc-derived-%s" % purpose
         temp_path = helpers.get_temp_file()
