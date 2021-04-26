@@ -99,6 +99,11 @@ class Address(DataClassMixin):
 
 
 @dataclass
+class Token(DataClassMixin):
+    contract: str
+
+
+@dataclass
 class TxBroadcastReceipt(DataClassMixin):
     is_success: bool
     receipt_code: TxBroadcastReceiptCode

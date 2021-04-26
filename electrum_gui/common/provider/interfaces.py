@@ -9,6 +9,7 @@ from electrum_gui.common.provider.data import (
     ClientInfo,
     PricePerUnit,
     SignedTx,
+    Token,
     Transaction,
     TransactionStatus,
     TxBroadcastReceipt,
@@ -43,7 +44,7 @@ class ClientInterface(ABC):
         :return: Address
         """
 
-    def get_balance(self, address: str, contract_address: Optional[str] = None) -> int:
+    def get_balance(self, address: str, token: Token = None) -> int:
         """
         get address balance
         :param address: address

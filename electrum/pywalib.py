@@ -7,7 +7,7 @@ import sqlite3
 from contextlib import contextmanager
 from decimal import Decimal
 from os.path import expanduser
-from typing import List, Optional
+from typing import List
 
 import requests
 import urllib3
@@ -18,6 +18,7 @@ from web3 import HTTPProvider, Web3
 
 from electrum.util import make_aiohttp_session
 from electrum_gui.common.provider.data import (
+    Token,
     TransactionStatus,
     Address,
     TxBroadcastReceiptCode,
@@ -351,7 +352,7 @@ class PyWalib:
 
         if contract:
             # check whether there is sufficient ERC20 token balance
-            erc20_balance = self._get_balance_inner(from_address, contract.get_address())
+            erc20_balance = self._get_balance_inner(from_address, contract)
             if value > erc20_balance:
                 raise InsufficientERC20FundsException()
 
@@ -485,9 +486,20 @@ class PyWalib:
             return receipt.txid
 
     @classmethod
-    def _get_balance_inner(cls, address: str, contract_address: Optional[str] = None):
+    def get_balance(cls, wallet_address, contract=None):
+        balance = cls._get_balance_inner(wallet_address, contract)
+        if contract is None:
+            return "eth", cls.web3.fromWei(balance, "ether")
+        else:
+            erc_balance = Decimal(balance) / pow(10, Decimal(contract.contract_decimals))
+            return contract.get_symbol(), erc_balance
+
+    @classmethod
+    def _get_balance_inner(cls, address: str, contract=None):
         try:
-            return provider_manager.get_balance(cls.get_chain_code(), address, token_address=contract_address)
+            return provider_manager.get_balance(
+                cls.get_chain_code(), address, token=None if not contract else Token(contract=contract.get_address())
+            )
         except Exception:
             return 0
 

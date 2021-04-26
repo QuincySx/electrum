@@ -9,6 +9,7 @@ from electrum_gui.common.provider.data import (
     ClientInfo,
     EstimatedTimeOnPrice,
     PricePerUnit,
+    Token,
     Transaction,
     TransactionFee,
     TransactionInput,
@@ -54,11 +55,11 @@ class Etherscan(ClientInterface, SearchTransactionMixin):
         nonce = int(resp["result"], base=16)
         return Address(address=address, balance=balance, nonce=nonce, existing=(bool(balance) or bool(nonce)))
 
-    def get_balance(self, address: str, token_address: Optional[str] = None) -> int:
-        if token_address is None:
+    def get_balance(self, address: str, token: Token = None) -> int:
+        if not token:
             return super(Etherscan, self).get_balance(address)
         else:
-            resp = self._call_action("account", "tokenbalance", address=address, contractaddress=token_address)
+            resp = self._call_action("account", "tokenbalance", address=address, contractaddress=token.contract)
             return int(resp.get("result", 0))
 
     def get_transaction_by_txid(self, txid: str) -> Transaction:
