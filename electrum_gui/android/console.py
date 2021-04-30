@@ -3282,7 +3282,7 @@ class AndroidCommands(commands.Commands):
                 fiat_str = self.daemon.fx.ccy_amount_str(main_coin_balance * main_coin_price, True)
                 balance = f"{main_coin_balance} ({fiat_str} {self.ccy})"
             else:
-                history = reversed(wallet.get_history())
+                history = wallet.get_history()
                 if not history:
                     continue
                 c, u, _ = wallet.get_balance()
