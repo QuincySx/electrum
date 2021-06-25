@@ -1023,7 +1023,7 @@ class AndroidCommands(commands.Commands):
         gas_limit=None,
     ):
         chain_code = coin_manager.legacy_coin_to_chain_code(coin)
-        main_coin_code = coin_manager.get_chain_info(chain_code).fee_code
+        main_coin_code = coin_manager.get_chain_info(chain_code).fee_coin
         main_coin = coin_manager.get_coin_info(main_coin_code)
 
         if not to_address:
@@ -2719,7 +2719,7 @@ class AndroidCommands(commands.Commands):
 
         chain_code = coin_manager.legacy_coin_to_chain_code(self.wallet.coin)
         if contract_addr is None:
-            main_coin_code = coin_manager.get_chain_info(chain_code).fee_code
+            main_coin_code = coin_manager.get_chain_info(chain_code).fee_coin
             coin = coin_manager.get_coin_info(main_coin_code)
         else:
             coin = coin_manager.get_coin_by_token_address(chain_code, contract_addr)
@@ -3965,8 +3965,8 @@ class AndroidCommands(commands.Commands):
                 if address_info_list is None:
                     continue
 
-                fee_code = coin_manager.get_chain_info(chain_code).fee_code
-                main_coin_price = price_manager.get_last_price(fee_code, self.ccy)
+                fee_coin = coin_manager.get_chain_info(chain_code).fee_coin
+                main_coin_price = price_manager.get_last_price(fee_coin, self.ccy)
                 for index, address_info in enumerate(address_info_list):
                     if not address_info.existing:
                         continue
@@ -4905,7 +4905,7 @@ class AndroidCommands(commands.Commands):
         main_balance, tokens_balance_info = wallet.get_all_balance()
         sum_fiat = Decimal('0')
 
-        main_coin_code = coin_manager.get_chain_info(chain_code).fee_code
+        main_coin_code = coin_manager.get_chain_info(chain_code).fee_coin
         main_coin = coin_manager.get_coin_info(main_coin_code)
         main_coin_price = price_manager.get_last_price(main_coin_code, self.ccy)
         main_coin_fiat = main_balance * main_coin_price

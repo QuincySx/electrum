@@ -2,7 +2,7 @@
   {
     "chain_code": "btc",
     "name": "Bitcoin",
-    "fee_code": "btc",
+    "fee_coin": "btc",
     "chain_model": "utxo",
     "curve": "secp256k1",
     "bip44_coin_type": 0,
@@ -28,7 +28,7 @@
   {
     "chain_code": "eth",
     "name": "Ethereum",
-    "fee_code": "eth",
+    "fee_coin": "eth",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 60,
@@ -93,7 +93,7 @@
   {
     "chain_code": "bsc",
     "name": "Binance Smart Chain",
-    "fee_code": "bsc",
+    "fee_coin": "bsc",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 60,
@@ -153,7 +153,7 @@
   {
     "chain_code": "heco",
     "name": "Huobi ECO Chain",
-    "fee_code": "heco",
+    "fee_coin": "heco",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 60,
@@ -213,7 +213,7 @@
   {
     "chain_code": "okt",
     "name": "OKExChain Mainnet",
-    "fee_code": "okt",
+    "fee_coin": "okt",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 60,
@@ -240,7 +240,7 @@
   {
     "chain_code": "sol",
     "name": "Solana",
-    "fee_code": "sol",
+    "fee_coin": "sol",
     "chain_model": "account",
     "curve": "ed25519",
     "bip44_coin_type": 501,
@@ -269,7 +269,7 @@
   {
     "chain_code": "stc",
     "name": "Starcoin Mainnet",
-    "fee_code": "stc",
+    "fee_coin": "stc",
     "chain_model": "account",
     "curve": "ed25519",
     "bip44_coin_type": 101010,
@@ -301,7 +301,7 @@
   {
     "chain_code": "cfx",
     "name": "Conflux Mainnet",
-    "fee_code": "cfx",
+    "fee_coin": "cfx",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 503,

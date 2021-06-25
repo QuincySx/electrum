@@ -2,7 +2,7 @@
   {
     "chain_code": "tbtc",
     "name": "Bitcoin TestNet3",
-    "fee_code": "tbtc",
+    "fee_coin": "tbtc",
     "chain_model": "utxo",
     "curve": "secp256k1",
     "bip44_coin_type": 1,
@@ -28,7 +28,7 @@
   {
     "chain_code": "teth",
     "name": "Ethereum Ropsten Test Network",
-    "fee_code": "teth",
+    "fee_coin": "teth",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 60,
@@ -66,7 +66,7 @@
   {
     "chain_code": "tbsc",
     "name": "Binance Smart Chain Test Network",
-    "fee_code": "tbsc",
+    "fee_coin": "tbsc",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 60,
@@ -93,7 +93,7 @@
   {
     "chain_code": "theco",
     "name": "Fork Huobi ECO Chain",
-    "fee_code": "theco",
+    "fee_coin": "theco",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 60,
@@ -120,7 +120,7 @@
   {
     "chain_code": "tokt",
     "name": "OKExChain Testnet",
-    "fee_code": "tokt",
+    "fee_coin": "tokt",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 60,
@@ -147,7 +147,7 @@
   {
     "chain_code": "tsol",
     "name": "Solana",
-    "fee_code": "tsol",
+    "fee_coin": "tsol",
     "chain_model": "account",
     "curve": "ed25519",
     "bip44_coin_type": 501,
@@ -177,7 +177,7 @@
     "chain_code": "tstc",
     "name": "Starcoin barnard",
     "chain_model": "account",
-    "fee_code": "tstc",
+    "fee_coin": "tstc",
     "curve": "ed25519",
     "bip44_coin_type": 101010,
     "bip44_target_level": "ADDRESS_INDEX",
@@ -208,7 +208,7 @@
   {
     "chain_code": "tcfx",
     "name": "Conflux Testnet",
-    "fee_code": "tcfx",
+    "fee_coin": "tcfx",
     "chain_model": "account",
     "curve": "secp256k1",
     "bip44_coin_type": 503,

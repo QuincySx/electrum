@@ -246,7 +246,7 @@ class GeneralWallet(object):
     @property
     def fee_coin(self):
         if self._fee_coin is None:
-            self._fee_coin = coin_manager.get_coin_info(self.chain_info.fee_code)
+            self._fee_coin = coin_manager.get_coin_info(self.chain_info.fee_coin)
 
         return self._fee_coin
 
