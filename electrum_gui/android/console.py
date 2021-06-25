@@ -2870,15 +2870,15 @@ class AndroidCommands(commands.Commands):
 
     @api.api_entry()
     def dapp_eth_rpc_info(self):
-        legacy_chain_code = codes.ETH
+        chain_code = codes.ETH
         if self.wallet is not None:
-            legacy_chain_code = self.wallet.coin
+            chain_code = self.wallet.coin
 
-        chain_code = coin_manager.legacy_coin_to_chain_code(legacy_chain_code)
+        chain_code = coin_manager.legacy_coin_to_chain_code(chain_code)
         chain_info = coin_manager.get_chain_info(chain_code)
         require(chain_info.chain_affinity in (codes.ETH, codes.CFX))
         ret = {
-            "rpc": chain_info.clients[0]["url"],  # TODO: use the URL of an alive client
+            "rpc": chains_config.get_client_configs(chain_code)[0]["url"],  # TODO: use the URL of an alive client
             "chain_id": chain_info.chain_id,
         }
         return json.dumps(ret)
