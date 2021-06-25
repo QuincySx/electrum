@@ -15,7 +15,7 @@ from electrum_gui.common.wallet import manager as wallet_manager
 from electrum_gui.common.wallet.data import WalletType
 from electrum_gui.common.wallet.models import AccountModel
 
-MIGRATED_COINS: Set = {"sol", "stc", "cfx"}
+MIGRATED_COINS: Set = {"sol", "tsol", "stc", "tstc", "cfx", "tcfx"}
 
 logger = logging.getLogger("app.migrating")
 
@@ -51,7 +51,7 @@ class GeneralWallet(object):
     def from_pubkey_or_addresses(
         cls, name: str, coin: str, config: simple_config.SimpleConfig, pubkey_or_addresses: str
     ):
-        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        chain_code = coin
         pubkey_or_address = pubkey_or_addresses.split()[0]
 
         address_validation = provider_manager.verify_address(chain_code, pubkey_or_address)
@@ -75,7 +75,7 @@ class GeneralWallet(object):
     def from_prvkeys(
         cls, name: str, coin: str, config: simple_config.SimpleConfig, prvkeys: str, password: str
     ) -> 'GeneralWallet':
-        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        chain_code = coin
         prvkey = prvkeys.split()[0]
         wallet_info = wallet_manager.import_standalone_wallet_by_prvkey(
             name=name, chain_code=chain_code, prvkey=bytes.fromhex(prvkey), password=password
@@ -94,7 +94,7 @@ class GeneralWallet(object):
         keystore_password: str,
         password: str,
     ) -> 'GeneralWallet':
-        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        chain_code = coin
         wallet_info = wallet_manager.import_standalone_wallet_by_keystore(
             name=name,
             chain_code=chain_code,
@@ -123,7 +123,7 @@ class GeneralWallet(object):
         as_primary_wallet: bool = False,
     ):
         require(mnemonic is not None)
-        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        chain_code = coin
 
         if not as_primary_wallet:
             wallet_info = wallet_manager.import_standalone_wallet_by_mnemonic(
@@ -166,7 +166,7 @@ class GeneralWallet(object):
         hardware_device_path: str,
         xpub_required: str,
     ):
-        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        chain_code = coin
         bip44_path = wallet_manager.generate_next_bip44_path_for_primary_hardware_wallet(
             chain_code, hardware_device_path
         )
@@ -191,7 +191,7 @@ class GeneralWallet(object):
         bip44_path: str,
         xpub_required: str,
     ):
-        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        chain_code = coin
         bip44_path = bip44.BIP44Path.from_bip44_path(bip44_path)
         xpub_generated = provider_manager.hardware_get_xpub(chain_code, hardware_device_path, bip44_path)
         require(

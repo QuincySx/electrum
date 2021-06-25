@@ -273,25 +273,3 @@ class TestCoinManager(TestCase):
                         "eth", "0x52ce071bd9b1c4b00a0b92d298c512478cad67e5", add_if_missing=True
                     ),
                 )
-
-    @patch("electrum_gui.common.coin.manager.settings")
-    def test_legacy_coin_to_chain_code(self, fake_settings):
-        with self.subTest("in DEV model"):
-            fake_settings.IS_DEV = True
-            self.assertEqual("teth", manager.legacy_coin_to_chain_code("eth"))
-
-        with self.subTest("in Release model"):
-            fake_settings.IS_DEV = False
-            self.assertEqual("eth", manager.legacy_coin_to_chain_code("eth"))
-
-    @patch("electrum_gui.common.coin.manager.settings")
-    def test_chain_code_to_legacy_coin(self, fake_settings):
-        with self.subTest("in DEV model"):
-            fake_settings.IS_DEV = True
-            self.assertEqual("eth", manager.chain_code_to_legacy_coin("teth"))
-            self.assertEqual("eth", manager.chain_code_to_legacy_coin("eth"))  # Ignored if it does not start with 't'
-
-        with self.subTest("is Release model"):
-            fake_settings.IS_DEV = False
-            self.assertEqual("eth", manager.chain_code_to_legacy_coin("eth"))
-            self.assertEqual("teth", manager.chain_code_to_legacy_coin("teth"))  # Meaningless, only for testing

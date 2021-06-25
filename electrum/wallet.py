@@ -360,7 +360,7 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
     def check_customer_and_default_path(self):
         derivation_path = self.get_derivation_path(self.get_addresses()[0])
         wallet_path_list = derivation_path.split('/')
-        default_path = helpers.get_default_path(self.coin, int(helpers.get_path_info(derivation_path, pos=1)))
+        default_path = keystore.bip44_derivation(0, int(helpers.get_path_info(derivation_path, pos=1)))
         default_path_list = default_path.split('/')
         default_path_list += ['0', '0']
         wallet_path_list.pop(3)
@@ -2974,6 +2974,8 @@ class Wallet(object):
 
     def __new__(self, db: 'WalletDB', storage: Optional[WalletStorage], *, config: SimpleConfig):
         wallet_type = db.get('wallet_type')
+        if wallet_type not in wallet_constructors and wallet_type.startswith("tbtc"):
+            wallet_type = wallet_type[5:]  # Workaround for tbtc
         WalletClass = Wallet.wallet_class(wallet_type)
         wallet = WalletClass(db, storage, config=config)
         return wallet
