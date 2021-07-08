@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from electrum_gui.common.wallet.bip44 import BIP44Level, BIP44Path
+from electrum_gui.common.basic.bip44 import BIP44Level, BIP44Path
 
 
 class TestBIP44Path(TestCase):
@@ -49,3 +49,11 @@ class TestBIP44Path(TestCase):
         )
         with self.assertRaisesRegex(ValueError, "The target level should higher than account level"):
             path.to_target_level(BIP44Level.COIN_TYPE)
+
+    def test_to_bip44_int_path(self):
+        self.assertEqual(BIP44Path(44, 60, 1, 2, 3).to_bip44_int_path(), [2147483692, 2147483708, 2147483649, 2, 3])
+
+    def test_from_bip44_int_path(self):
+        self.assertEqual(
+            BIP44Path.from_bip44_int_path([2147483692, 2147483708, 2147483649, 2, 3]), BIP44Path(44, 60, 1, 2, 3)
+        )
