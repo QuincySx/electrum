@@ -67,15 +67,18 @@ class Etherscan(ClientInterface, SearchTransactionMixin):
     def get_transaction_by_txid(self, txid: str) -> Transaction:
         resp = self._call_action("proxy", "eth_getTransactionByHash", txhash=txid)
         raw_tx = resp["result"]
-        block_header = (
-            BlockHeader(
-                block_hash=raw_tx["blockHash"],
-                block_number=int(raw_tx["blockNumber"], base=16),
-                block_time=0,
+
+        if raw_tx.get("blockHash"):
+            block_info = self._call_action("proxy", "eth_getBlockByNumber", tag=raw_tx["blockNumber"], boolean=False)[
+                "result"
+            ]
+            block_header = BlockHeader(
+                block_hash=block_info["hash"],
+                block_number=int(block_info["number"], base=16),
+                block_time=int(block_info["timestamp"], base=16),
             )
-            if raw_tx.get("blockHash")
-            else None
-        )
+        else:
+            block_header = None
 
         if block_header:
             resp = self._call_action("proxy", "eth_getTransactionReceipt", txhash=txid)
