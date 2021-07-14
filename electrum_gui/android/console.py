@@ -259,7 +259,6 @@ class AndroidCommands(commands.Commands):
         self.coins = []
         self.m = 0
         self.n = 0
-        self._tokens_dict_of_chain = {}
         self.config.set_key("auto_connect", True, True)
         global ticker
         ticker = Ticker(5.0, self._update_status)
@@ -2405,19 +2404,11 @@ class AndroidCommands(commands.Commands):
         :return:
         """
         if coin is None:
-            coin = self.wallet.coin if self.wallet is not None else "eth"
+            chain_code = self.wallet.coin if self.wallet is not None else "eth"
+        else:
+            chain_code = coin
 
-        chain_code = coin
-        return json.dumps(list(self._load_tokens_dict(chain_code).values()))
-
-    def _load_tokens_dict(self, chain_code: str) -> dict:
-        tokens_dict = self._tokens_dict_of_chain.get(chain_code)
-
-        if tokens_dict is None:
-            tokens_dict = {i["address"]: i for i in read_json(f"{chain_code}_token_list.json", {}).get("tokens", ())}
-            self._tokens_dict_of_chain[chain_code] = tokens_dict
-
-        return tokens_dict
+        return json.dumps(chains_config.get_tokens_by_chain(chain_code))
 
     def _get_icon_by_token(self, coin, address=""):
         chain_code = coin
@@ -2435,8 +2426,8 @@ class AndroidCommands(commands.Commands):
 
         chain_code = coin
 
-        token_dict = self._load_tokens_dict(chain_code)
-        top_50_tokens = set(itertools.islice(token_dict.keys(), 50))
+        top_50_tokens = set(token["address"] for token in chains_config.get_tokens_by_chain(chain_code)[:50])
+
         db_token_coins = coin_manager.get_coins_by_chain(chain_code)
         custom_token_coins = (i for i in db_token_coins if i.token_address and i.token_address not in top_50_tokens)
         custom_token_info_list = [
@@ -2471,7 +2462,7 @@ class AndroidCommands(commands.Commands):
         chain_code = coin
         contract_addr = provider_manager.verify_address(chain_code, contract_addr).normalized_address
 
-        token_info = self._load_tokens_dict(chain_code).get(contract_addr)
+        token_info = chains_config.get_token_info(chain_code, contract_addr)
         if token_info is not None:
             _symbol = token_info["symbol"]
             decimals = token_info["decimals"]

@@ -320,7 +320,7 @@ def _load_data(refresh=False):
                 continue
 
             if conf_type == "tokens":
-                TOKENS[chain] = json.loads(chains_zip.read(filename))
+                TOKENS[chain] = {token["address"]: token for token in json.loads(chains_zip.read(filename))}
             elif conf_type == "settings":
                 chain_settings = json.loads(chains_zip.read(filename))
 
@@ -355,6 +355,16 @@ def _load_data(refresh=False):
 def list_chain_settings(refresh: bool = False) -> List[Dict]:
     _load_data(refresh=refresh)
     return list(CHAINS.values())
+
+
+def get_tokens_by_chain(chain_code: str) -> List[Dict]:
+    _load_data()
+    return list(TOKENS.get(chain_code, {}).values())
+
+
+def get_token_info(chain_code: str, address: str) -> Optional[Dict]:
+    _load_data()
+    return TOKENS.get(chain_code, {}).get(address)
 
 
 def get_evm_chains_to_recover() -> List[str]:
