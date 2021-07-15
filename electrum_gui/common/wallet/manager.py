@@ -154,7 +154,7 @@ def import_standalone_wallet_by_mnemonic(
         bip44_path = get_default_bip44_path(chain_code, address_encoding).to_bip44_path()
     else:
         bip44_path_ins = BIP44Path.from_bip44_path(bip44_path)
-        last_hardened_level = BIP44Level[chain_info.bip44_last_hardened_level.upper()]
+        last_hardened_level = chain_info.bip44_last_hardened_level
         require(bip44_path_ins.last_hardened_level >= last_hardened_level)
 
     master_seed = secret_manager.mnemonic_to_seed(mnemonic, passphrase)
@@ -280,8 +280,8 @@ def _generate_searching_bip44_address_paths(
     elif default_address_encoding in options:
         options = {default_address_encoding: options.pop(default_address_encoding), **options}
 
-    last_hardened_level = BIP44Level[chain_info.bip44_last_hardened_level.upper()]
-    target_level = BIP44Level[chain_info.bip44_target_level.upper()]
+    last_hardened_level = chain_info.bip44_last_hardened_level
+    target_level = chain_info.bip44_target_level
     for encoding, purpose in options.items():
         ins = BIP44Path(
             purpose=purpose,
@@ -423,8 +423,8 @@ def generate_next_bip44_path_for_derived_primary_wallet(chain_code: str, address
     if not existing_primary_wallets:
         return default_bip44_path
     else:
-        bip44_auto_increment_level = BIP44Level[chain_info.bip44_auto_increment_level.upper()]
-        target_level = BIP44Level[chain_info.bip44_target_level.upper()]
+        bip44_auto_increment_level = chain_info.bip44_auto_increment_level
+        target_level = chain_info.bip44_target_level
         require(bip44_auto_increment_level >= BIP44Level.ACCOUNT)
 
         last_account_lookup = {
@@ -764,8 +764,8 @@ def get_default_bip44_path(chain_code: str, address_encoding: str = None) -> BIP
     chain_info = coin_manager.get_chain_info(chain_code)
     address_encoding = address_encoding or chain_info.default_address_encoding
     purpose = chain_info.bip44_purpose_options.get(address_encoding) or 44
-    bip44_last_hardened_level = BIP44Level[chain_info.bip44_last_hardened_level.upper()]
-    bip44_target_level = BIP44Level[chain_info.bip44_target_level.upper()]
+    bip44_last_hardened_level = chain_info.bip44_last_hardened_level
+    bip44_target_level = chain_info.bip44_target_level
     bip44_path = BIP44Path(
         purpose=purpose,
         coin_type=chain_info.bip44_coin_type,

@@ -3260,8 +3260,8 @@ class AndroidCommands(commands.Commands):
             if is_coin_migrated(coin):
                 chain_code = coin_manager.legacy_coin_to_chain_code(coin)
                 chain_info = coin_manager.get_chain_info(chain_code)
-                last_hardened_level = bip44.BIP44Level[chain_info.bip44_last_hardened_level.upper()]
-                target_level = bip44.BIP44Level[chain_info.bip44_target_level.upper()]
+                last_hardened_level = chain_info.bip44_last_hardened_level
+                target_level = chain_info.bip44_target_level
                 wallet_info = self.create(
                     coin.upper(),
                     password,
@@ -4263,7 +4263,7 @@ class AndroidCommands(commands.Commands):
     def get_account_id(self, path, coin):
         chain_code = coin_manager.legacy_coin_to_chain_code(coin)
         chain_info = coin_manager.get_chain_info(chain_code)
-        return helpers.get_path_info(path, bip44.BIP44Level[chain_info.bip44_auto_increment_level.upper()])
+        return helpers.get_path_info(path, chain_info.bip44_auto_increment_level)
 
     def update_devired_wallet_info(self, bip39_derivation, xpub, name, coin):
         account_id = self.get_account_id(bip39_derivation, coin)
