@@ -1,12 +1,12 @@
 import peewee
 
 from electrum_gui.common.basic.orm.models import AutoDateTimeField, BaseModel
-from electrum_gui.common.wallet.data import WalletType
+from electrum_gui.common.wallet import data
 
 
 class WalletModel(BaseModel):
     id = peewee.AutoField(primary_key=True)
-    type = peewee.IntegerField(choices=WalletType.to_choices())
+    type = peewee.IntegerField(choices=data.WalletType.to_choices())
     name = peewee.CharField()
     chain_code = peewee.CharField()
     created_time = AutoDateTimeField()
