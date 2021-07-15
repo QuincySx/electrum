@@ -6,6 +6,7 @@ from decimal import Decimal
 from typing import Iterable, List, Literal, Optional, Tuple
 
 from electrum_gui.common.basic.functional.timing import timing_logger
+from electrum_gui.common.basic.functional.wraps import error_interrupter, timeout_lock
 from electrum_gui.common.basic.orm.database import db
 from electrum_gui.common.basic.ticker.utils import on_interval
 from electrum_gui.common.coin import manager as coin_manager
@@ -143,8 +144,15 @@ def _tx_action_factory__account_model(chain_code: str, transactions: Iterable[Tr
     main_coin = coin_manager.get_coin_info(chain_code)
     tokens = coin_manager.query_coins_by_token_addresses(chain_code, list(token_addresses))
     tokens = {i.token_address: i for i in tokens if i.token_address}
+    txids = set()
 
     for tx in transactions:
+        if (
+            tx.txid in txids
+        ):  # May get two txs with the same txid here, if the receiver and the sender are at the same address
+            continue
+
+        txids.add(tx.txid)
         status = TX_TO_ACTION_STATUS_DIRECT_MAPPING.get(tx.status)
 
         for index, (tx_input, tx_output) in enumerate(zip(tx.inputs, tx.outputs)):
@@ -228,39 +236,44 @@ def query_actions_by_address(
     items_per_page: int = 20,
     searching_address_as: Literal["sender", "receiver", "both"] = "both",
 ) -> List[TxAction]:
-    address = provider_manager.verify_address(chain_code, address).normalized_address
-    page_number = max(page_number, 1)
-    is_first_page = page_number == 1
+    with timeout_lock("transaction_manager.query_actions_by_address") as acquired:
+        if not acquired:
+            return []
 
-    archived_id_cache_key = f"{chain_code}:{address}"
-    archived_id = _LAST_ARCHIVED_ID_CACHE.get(archived_id_cache_key)
-    if is_first_page or not archived_id:
-        archived_id = int(time.time())
-        _LAST_ARCHIVED_ID_CACHE[archived_id_cache_key] = archived_id
+        address = provider_manager.verify_address(chain_code, address).normalized_address
+        page_number = max(page_number, 1)
+        is_first_page = page_number == 1
 
-    local_actions = []
-    max_times = 3
-    for times in range(max_times + 1):
-        local_actions = daos.query_actions_by_address(
-            chain_code,
-            address,
-            coin_code=coin_code,
-            items_per_page=items_per_page,
-            page_number=page_number,
-            archived_ids=[archived_id, None],
-            searching_address_as=searching_address_as,
-        )
+        archived_id_cache_key = f"{chain_code}:{address}"
+        archived_id = _LAST_ARCHIVED_ID_CACHE.get(archived_id_cache_key)
+        if is_first_page or not archived_id:
+            archived_id = int(time.time() * 1e3)
+            _LAST_ARCHIVED_ID_CACHE[archived_id_cache_key] = archived_id
 
-        if (
-            len(local_actions) >= items_per_page
-            or times == max_times  # No need to invoke synchronization the last time
-            or _sync_actions_by_address(chain_code, address, archived_id, require_sync_number=200 * 1 << times) == 0
-        ):
-            break
+        local_actions = []
+        max_times = 3
+        for times in range(max_times + 1):
+            local_actions = daos.query_actions_by_address(
+                chain_code,
+                address,
+                coin_code=coin_code,
+                items_per_page=items_per_page,
+                page_number=page_number,
+                archived_ids=[archived_id, None],
+                searching_address_as=searching_address_as,
+            )
 
-    return local_actions
+            if (
+                len(local_actions) >= items_per_page
+                or times == max_times  # No need to invoke synchronization the last time
+                or _sync_actions_by_address(chain_code, address, archived_id, require_sync_number=200 * 1 << times) == 0
+            ):
+                break
+
+        return local_actions
 
 
+@error_interrupter(logger, interrupt=True, default=0)
 def _sync_actions_by_address(chain_code: str, address: str, archived_id: int, require_sync_number: int = 200) -> int:
     first_confirmed_action = daos.get_first_confirmed_action_at_the_same_archived_id(chain_code, address, archived_id)
     last_confirmed_action_before_this_archived = daos.get_last_confirmed_action_before_archived_id(

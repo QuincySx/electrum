@@ -1,5 +1,9 @@
+import contextlib
 import functools
+import logging
+import threading
 import time
+from typing import Any
 
 
 def cache_it(timeout: int = 60):  # in seconds
@@ -24,3 +28,54 @@ def cache_it(timeout: int = 60):  # in seconds
         return inner
 
     return wrapper
+
+
+def error_interrupter(logger: logging.Logger, interrupt: bool = False, default: Any = None):
+    def wrapper(fn):
+        @functools.wraps(fn)
+        def inner(*args, **kwargs):
+            try:
+                return fn(*args, **kwargs)
+            except Exception as e:
+                logger.exception(f"Error in {fn}, error: {e}")
+
+                if interrupt:
+                    return default
+                else:
+                    raise e
+
+        return inner
+
+    return wrapper
+
+
+_TABLE = {}
+_TABLE_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def timeout_lock(lock_name: str, timeout: float = 10, raise_if_timeout: bool = False):
+    with _TABLE_LOCK:
+        lock, counter = _TABLE.get(lock_name) or (threading.Lock(), 0)
+        counter += 1
+        _TABLE[lock_name] = (lock, counter)
+
+    acquired = False
+    try:
+        acquired = lock.acquire(timeout=timeout)
+        if not acquired and raise_if_timeout:
+            raise TimeoutError(f"Acquire lock timeout. lock_name: {lock_name}")
+
+        yield acquired
+    finally:
+        if acquired:
+            lock.release()
+
+        with _TABLE_LOCK:
+            lock, counter = _TABLE[lock_name]
+            counter -= 1
+
+            if counter == 0:
+                _TABLE.pop(lock_name)
+            else:
+                _TABLE[lock_name] = (lock, counter)
