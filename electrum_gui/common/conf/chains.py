@@ -66,6 +66,18 @@ CHAIN_IMPLS = {
         "bip44_purpose_options": {},
         "fee_price_decimals_for_legibility": 0,
     },
+    "cfx": {
+        "chain_model": "account",
+        "curve": "secp256k1",
+        "chain_affinity": "cfx",
+        "bip44_coin_type": 503,
+        "bip44_target_level": "ADDRESS_INDEX",
+        "bip44_auto_increment_level": "ADDRESS_INDEX",
+        "bip44_last_hardened_level": "ACCOUNT",
+        "default_address_encoding": None,
+        "bip44_purpose_options": {},
+        "fee_price_decimals_for_legibility": 0,
+    },
 }
 
 CHAINS = {
