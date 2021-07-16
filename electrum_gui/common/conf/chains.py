@@ -1,12 +1,19 @@
+import base64
 import collections
 import hashlib
 import io
 import json
+import logging
 import os
 import zipfile
 from typing import Dict, List, Optional, Set
 
+import requests
+
+from electrum import util
 from electrum_gui.common.conf import settings, utils
+
+logger = logging.getLogger("app.conf")
 
 PRICE = {
     "coingecko_mappings": collections.defaultdict(list),
@@ -289,6 +296,7 @@ TOKENS = {}
 _CONF_FILENAME = "chain_configs.dat"
 _LOCAL_FILE = os.path.join(os.path.dirname(__file__), "data", _CONF_FILENAME)
 _DATA_FILE = os.path.join(settings.DATA_DIR, "app_configs", _CONF_FILENAME)
+_REMOTE_FILE = "https://onekey-asset.com/app_configs/chain_configs.dat"
 _FILE_MD5SUM = None
 
 
@@ -307,18 +315,37 @@ def _read_data_file(filename: str) -> Optional[bytes]:
         return zipfile_content
 
 
+def _download_data_file() -> bool:
+    new_file_downloaded = False
+
+    try:
+        resp = requests.head(_REMOTE_FILE, timeout=3)
+        if _FILE_MD5SUM != base64.b64decode(resp.headers["Content-MD5"]).hex():
+            resp = requests.get(_REMOTE_FILE, timeout=5)
+            if resp.status_code == 200:
+                util.make_dir(os.path.dirname(_DATA_FILE))
+                with open(_DATA_FILE, 'wb') as f:
+                    f.write(resp.content)
+                new_file_downloaded = True
+    except Exception:
+        logger.exception("Failed to download new data file.")
+
+    return new_file_downloaded
+
+
 def _load_data(refresh=False):
     zipfile_content = None
+    new_file_downloaded = False
 
     if refresh:
-        pass  # TODO: download new file
+        new_file_downloaded = _download_data_file()
 
-    if zipfile_content is None and _FILE_MD5SUM is not None:
-        return  # Not refreshed, or failed to refresh, and local file is already loaded.
-    else:
+    if new_file_downloaded or _FILE_MD5SUM is None:
         zipfile_content = _read_data_file(_DATA_FILE) or _read_data_file(_LOCAL_FILE)
         if zipfile_content is None:  # SHOULD NOT happen
             return
+    else:
+        return  # Not refreshed, or failed to refresh, and local file is already loaded.
 
     global PRICE, CHAINS, TOKENS
     with zipfile.ZipFile(io.BytesIO(zipfile_content)) as chains_zip:
