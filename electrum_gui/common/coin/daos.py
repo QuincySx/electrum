@@ -8,7 +8,7 @@ from electrum_gui.common.coin.models import CoinModel
 def add_coin(*coins: CoinInfo):
     models = (CoinModel(**i.to_dict()) for i in coins)
     with db.atomic():
-        CoinModel.bulk_create(models, 100)
+        CoinModel.bulk_create(models, 10)
 
 
 def get_coin_info(coin_code: str) -> Optional[CoinInfo]:

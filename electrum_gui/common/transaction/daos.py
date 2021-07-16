@@ -51,7 +51,7 @@ def new_action(
 
 
 def bulk_create(actions: Iterable[TxAction]):
-    return TxAction.bulk_create(actions, 100)
+    return TxAction.bulk_create(actions, 10)
 
 
 def on_actions_confirmed(
