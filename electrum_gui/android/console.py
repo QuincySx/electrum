@@ -3804,7 +3804,8 @@ class AndroidCommands(commands.Commands):
         """
         self._assert_daemon_running()
         for _name, wallet in self.daemon._wallets.items():
-            wallet.update_password(old_pw=old_password, new_pw=new_password, str_pw=self.android_id)
+            if not wallet.is_watching_only():
+                wallet.update_password(old_pw=old_password, new_pw=new_password, str_pw=self.android_id)
 
     @api.api_entry()
     def check_password(self, password):
