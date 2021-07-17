@@ -3875,6 +3875,7 @@ class AndroidCommands(commands.Commands):
                         self.delete_wallet_derived_info(wallet_obj)
                         self.delete_wallet_from_deamon(key_in_daemon)
                         self.wallet_context.remove_type_info(wallet_id)
+                        self._clear_wallet_refs_by_identity(wallet_obj.identity)
                 except Exception as e:
                     raise BaseException(e)
         self.hd_wallet = None
@@ -5066,12 +5067,21 @@ class AndroidCommands(commands.Commands):
                 self.delete_wallet_derived_info(wallet, hw=hw)
             self.delete_wallet_from_deamon(self._wallet_path(name))
             self.wallet_context.remove_type_info(name)
+            self._clear_wallet_refs_by_identity(wallet.identity)
             # os.remove(self._wallet_path(name))
 
     def stc_spec_get_receipt_identifier_address(self, wallet_name):
         wallet = self.get_wallet_by_name(wallet_name)
         assert isinstance(wallet, GeneralWallet)
         return wallet.stc_spec_get_receipt_identifier_address()
+
+    def _clear_wallet_refs_by_identity(self, identity):
+        if self.wallet is not None and self.wallet.identity == identity:
+            self.wallet = None
+        if self.hd_wallet is not None and self.hd_wallet.identity == identity:
+            self.hd_wallet = None
+        if self.check_pw_wallet is not None and self.check_pw_wallet.identity == identity:
+            self.check_pw_wallet = None
 
     def _assert_daemon_running(self):
         if not self.daemon_running:
