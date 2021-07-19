@@ -9,6 +9,7 @@ class WalletModel(BaseModel):
     type = peewee.IntegerField(choices=data.WalletType.to_choices())
     name = peewee.CharField()
     chain_code = peewee.CharField()
+    hardware_key_id = peewee.CharField(null=True, help_text="Binding the mnemonic inside hardware")
     created_time = AutoDateTimeField()
     modified_time = AutoDateTimeField()
 

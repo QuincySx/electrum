@@ -68,6 +68,10 @@ def get_feature(hardware_device_path: str, force_refresh: bool = False) -> dict:
     return get_client(hardware_device_path).get_feature(force_refresh)
 
 
+def get_key_id(hardware_device_path: str) -> str:
+    return get_client(hardware_device_path).get_key_id()
+
+
 def verify_secure_element(hardware_device_path: str, message: str) -> dict:
     return get_client(hardware_device_path).verify_secure_element(message)
 

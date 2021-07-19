@@ -16,6 +16,7 @@ from electrum_gui.common.basic.orm import database as orm_database
 from electrum_gui.common.coin import codes
 from electrum_gui.common.coin import data as coin_data
 from electrum_gui.common.coin import manager as coin_manager
+from electrum_gui.common.hardware import manager as hardware_manager
 from electrum_gui.common.provider import data as provider_data
 from electrum_gui.common.provider import manager as provider_manager
 from electrum_gui.common.secret import data as secret_data
@@ -64,9 +65,13 @@ def _create_default_wallet(
     address_encoding: str = None,
     pubkey_id: int = None,
     bip44_path: str = None,
+    hardware_key_id: str = None,
 ) -> dict:
+    if hardware_key_id is not None:
+        require(data.WalletType.is_hardware_wallet(wallet_type))
+
     with orm_database.db.atomic():
-        wallet = daos.wallet.create_wallet(name, wallet_type, chain_code)
+        wallet = daos.wallet.create_wallet(name, wallet_type, chain_code, hardware_key_id)
         account = daos.account.create_account(
             wallet.id,
             chain_code,
@@ -421,10 +426,17 @@ def generate_next_bip44_path_for_derived_primary_wallet(
 ) -> bip44.BIP44Path:
     chain_info = coin_manager.get_chain_info(chain_code)
     address_encoding = address_encoding or chain_info.default_address_encoding
-    default_bip44_path = get_default_bip44_path(chain_code, address_encoding)
     existing_primary_wallets = daos.wallet.list_all_wallets(chain_code, data.WalletType.SOFTWARE_PRIMARY)
 
-    if not existing_primary_wallets:
+    return _generate_next_bip44_path(chain_info, address_encoding, existing_primary_wallets)
+
+
+def _generate_next_bip44_path(
+    chain_info: coin_data.ChainInfo, address_encoding: str, existing_wallets: List[models.WalletModel]
+):
+    default_bip44_path = get_default_bip44_path(chain_info.chain_code, address_encoding)
+
+    if not existing_wallets:
         return default_bip44_path
     else:
         bip44_auto_increment_level = chain_info.bip44_auto_increment_level
@@ -434,7 +446,7 @@ def generate_next_bip44_path_for_derived_primary_wallet(
         last_account_lookup = {
             i.wallet_id: i
             for i in daos.account.query_accounts_by_wallets(
-                [i.id for i in existing_primary_wallets], address_encoding=address_encoding
+                [i.id for i in existing_wallets], address_encoding=address_encoding
             )
         }
         indexes = (
@@ -501,7 +513,7 @@ def _build_wallet_info(
 ) -> dict:
     wallet_info = {
         "wallet_id": wallet.id,
-        "wallet_type": data.WalletType(wallet.type).name,
+        "wallet_type": data.WalletType.from_int(wallet.type).name,
         "name": wallet.name,
         "chain_code": wallet.chain_code,
         "address": account.address,
@@ -609,7 +621,8 @@ def send(
     coin_code: str,
     to_address: str,
     value: int,
-    password: str,
+    password: str = None,
+    hardware_device_path: str = None,
     nonce: int = None,
     fee_limit: int = None,
     fee_price_per_unit: int = None,
@@ -617,8 +630,18 @@ def send(
     auto_broadcast: bool = True,
 ) -> provider_data.SignedTx:
     wallet = _get_wallet_by_id(wallet_id)
-    if wallet.type == data.WalletType.WATCHONLY:
+    wallet_type = wallet.type
+
+    if data.WalletType.is_watchonly_wallet(wallet_type):
         raise exceptions.IllegalWalletOperation("Watchonly wallet can not send asset")
+    elif data.WalletType.is_software_wallet(wallet_type):
+        require(password, exceptions.IllegalWalletOperation("Require password"))
+    elif data.WalletType.is_hardware_wallet(wallet_type):
+        require(hardware_device_path, exceptions.IllegalWalletOperation("Require hardware_device_path"))
+        hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
+        require(hardware_key_id == wallet.hardware_key_id, exceptions.IllegalWalletOperation("Device mismatch"))
+    else:
+        raise ValueError(f"Illegal wallet_type: {wallet_type}")
 
     coin_info = coin_manager.get_coin_info(coin_code)
     if coin_info.chain_code != wallet.chain_code:
@@ -640,7 +663,12 @@ def send(
         raise exceptions.IllegalUnsignedTx(validation_message)
 
     accounts = daos.account.query_accounts_by_addresses(wallet.id, [i.address for i in unsigned_tx.inputs])
-    signed_tx = _sign_tx(wallet, accounts, password, unsigned_tx)
+    if data.WalletType.is_software_wallet(wallet_type):
+        signed_tx = _sign_tx_by_software_wallet(wallet, accounts, password, unsigned_tx)
+    elif data.WalletType.is_hardware_wallet(wallet_type):
+        signed_tx = _sign_tx_by_hardware_wallet(wallet, accounts, hardware_device_path, unsigned_tx)
+    else:
+        raise NotImplementedError("Should not be here")
 
     if auto_broadcast:
         receipt = broadcast_transaction(wallet.chain_code, signed_tx)
@@ -688,11 +716,11 @@ def _verify_unsigned_tx(wallet_id: int, coin_code: str, unsigned_tx: provider_da
     elif not all(provider_manager.verify_address(wallet.chain_code, i).is_valid for i in output_addresses):
         return False, "Invalid output address"
 
-    # todo more verification
+    # todo more verification, check whether main coin balance and token balance are enough
     return True, ""
 
 
-def _sign_tx(
+def _sign_tx_by_software_wallet(
     wallet: models.WalletModel,
     accounts: List[models.AccountModel],
     password: str,
@@ -700,6 +728,22 @@ def _sign_tx(
 ) -> provider_data.SignedTx:
     key_mapping = {i.address: secret_manager.get_signer(password, i.pubkey_id) for i in accounts}
     signed_tx = provider_manager.sign_transaction(wallet.chain_code, unsigned_tx, key_mapping)
+    return signed_tx
+
+
+def _sign_tx_by_hardware_wallet(
+    wallet: models.WalletModel,
+    accounts: List[models.AccountModel],
+    hardware_device_path: str,
+    unsigned_tx: provider_data.UnsignedTx,
+) -> provider_data.SignedTx:
+    bip44_path_of_signers = {i.address: i.bip44_path for i in accounts}
+    signed_tx = provider_manager.hardware_sign_transaction(
+        wallet.chain_code,
+        hardware_device_path,
+        unsigned_tx,
+        bip44_path_of_signers,
+    )
     return signed_tx
 
 
@@ -811,7 +855,7 @@ def get_encoded_address_by_account_id(account_id: int, address_encoding: str = N
 @orm_database.db.atomic()
 def cascade_delete_wallet_related_models(wallet_id: int, password: str = None):
     wallet = _get_wallet_by_id(wallet_id)
-    if wallet.type != data.WalletType.WATCHONLY:
+    if data.WalletType.is_software_wallet(wallet.type):
         check_wallet_password(wallet_id, password)
 
     chain_code = wallet.chain_code
@@ -841,3 +885,137 @@ def clear_all_primary_wallets(password: str = None):
 
 def count_primary_wallet_by_chain(chain_code: str) -> int:
     return len(daos.wallet.list_all_wallets(chain_code, wallet_type=data.WalletType.SOFTWARE_PRIMARY))
+
+
+def generate_next_bip44_path_for_primary_hardware_wallet(
+    chain_code: str,
+    hardware_device_path: str,
+    address_encoding: str = None,
+    hardware_key_id: str = None,
+) -> bip44.BIP44Path:
+    chain_info = coin_manager.get_chain_info(chain_code)
+    address_encoding = address_encoding or chain_info.default_address_encoding
+    hardware_key_id = hardware_key_id or hardware_manager.get_key_id(hardware_device_path)
+    existing_wallets = daos.wallet.list_all_wallets(
+        chain_code, data.WalletType.HARDWARE_PRIMARY, hardware_key_id=hardware_key_id
+    )
+    return _generate_next_bip44_path(chain_info, address_encoding, existing_wallets)
+
+
+def create_next_primary_hardware_wallet(
+    name: str,
+    chain_code: str,
+    hardware_device_path: str,
+    address_encoding: str = None,
+) -> dict:
+    chain_info = coin_manager.get_chain_info(chain_code)
+    address_encoding = address_encoding or chain_info.default_address_encoding
+    hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
+    bip44_path = generate_next_bip44_path_for_primary_hardware_wallet(
+        chain_code, hardware_device_path, address_encoding, hardware_key_id
+    ).to_bip44_path()
+    return _create_hardware_wallet(
+        name,
+        chain_code,
+        hardware_device_path,
+        data.WalletType.HARDWARE_PRIMARY,
+        hardware_key_id,
+        bip44_path,
+        address_encoding,
+    )
+
+
+def create_standalone_hardware_wallet(
+    name: str,
+    chain_code: str,
+    hardware_device_path: str,
+    bip44_path: str,
+    address_encoding: str = None,
+) -> dict:
+    hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
+    return _create_hardware_wallet(
+        name,
+        chain_code,
+        hardware_device_path,
+        data.WalletType.HARDWARE_STANDALONE,
+        hardware_key_id,
+        bip44_path=bip44_path,
+        address_encoding=address_encoding,
+    )
+
+
+def _create_hardware_wallet(
+    name: str,
+    chain_code: str,
+    hardware_device_path: str,
+    wallet_type: data.WalletType,
+    hardware_key_id: str,
+    bip44_path: str,
+    address_encoding: str = None,
+) -> dict:
+    require(data.WalletType.is_hardware_wallet(wallet_type))
+
+    chain_info = coin_manager.get_chain_info(chain_code)
+    address_encoding = address_encoding or chain_info.default_address_encoding
+    xpub = provider_manager.hardware_get_xpub(chain_code, hardware_device_path, bip44_path)
+    verifier = secret_manager.raw_create_verifier_by_xpub(chain_info.curve, xpub)
+    address = provider_manager.pubkey_to_address(chain_code, verifier, encoding=address_encoding)
+
+    with orm_database.db.atomic():
+        pubkey_model = secret_manager.import_xpub(chain_info.curve, xpub, path=bip44_path)
+        wallet_info = _create_default_wallet(
+            chain_code,
+            name,
+            wallet_type,
+            address,
+            address_encoding=address_encoding,
+            pubkey_id=pubkey_model.id,
+            bip44_path=bip44_path,
+            hardware_key_id=hardware_key_id,
+        )
+
+    return wallet_info
+
+
+def sign_message(
+    wallet_id: int,
+    message: str,
+    password: str = None,
+    hardware_device_path: str = None,
+) -> str:
+    wallet = _get_wallet_by_id(wallet_id)
+    account = get_default_account_by_wallet(wallet_id)
+    wallet_type = wallet.type
+
+    if data.WalletType.is_watchonly_wallet(wallet_type):
+        raise exceptions.IllegalWalletOperation("Watchonly wallet can not sign message")
+    elif data.WalletType.is_software_wallet(wallet_type):
+        require(password, exceptions.IllegalWalletOperation("Require password"))
+        raise NotImplementedError("Software wallets don't support sign message now")
+    elif data.WalletType.is_hardware_wallet(wallet_type):
+        require(hardware_device_path, exceptions.IllegalWalletOperation("Require hardware_device_path"))
+        hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
+        require(hardware_key_id == wallet.hardware_key_id, exceptions.IllegalWalletOperation("Device mismatch"))
+        return provider_manager.hardware_sign_message(
+            wallet.chain_code, hardware_device_path, account.bip44_path, message
+        )
+    else:
+        raise ValueError(f"Illegal wallet_type: {wallet_type}")
+
+
+def verify_message(
+    chain_code: str, address: str, message: str, signature: str, hardware_device_path: str = None
+) -> bool:
+    if hardware_device_path:
+        return provider_manager.hardware_verify_message(chain_code, hardware_device_path, address, message, signature)
+    else:
+        raise NotImplementedError("Software wallets don't support verify message now")
+
+
+def confirm_address_on_hardware(wallet_id: int, hardware_device_path: str) -> str:
+    wallet = _get_wallet_by_id(wallet_id)
+    require(data.WalletType.is_hardware_wallet(wallet.type))
+    account = get_default_account_by_wallet(wallet_id)
+    return provider_manager.hardware_get_address(
+        wallet.chain_code, hardware_device_path, account.bip44_path, confirm_on_device=True
+    )

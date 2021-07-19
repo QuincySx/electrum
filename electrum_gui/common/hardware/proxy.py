@@ -5,12 +5,14 @@ from typing import Any
 
 from trezorlib import client as trezor_client
 from trezorlib import device as trezor_device
+from trezorlib import ethereum as trezor_ethereum
 from trezorlib import exceptions as trezor_exceptions
 from trezorlib import firmware as trezor_firmware
 from trezorlib import protobuf as trezor_protobuf
 from trezorlib import transport as trezor_transport
 from trezorlib.transport import bridge as trezor_bridge
 
+from electrum_gui.common.basic import bip44
 from electrum_gui.common.basic.request.restful import RestfulRequest
 from electrum_gui.common.hardware import exceptions, interfaces
 from electrum_gui.common.hardware.callbacks import helper
@@ -83,6 +85,16 @@ class HardwareProxyClient(interfaces.HardwareClientInterface):
             self._client.refresh_features()
 
         return trezor_protobuf.to_dict(self._client.features)
+
+    def get_key_id(self) -> str:
+        binding_path = bip44.BIP44Path.from_bip44_path(
+            "m/10146782'/0'/0'"
+        )  # 10146782 = int(b"One".hex(), base=16) + int(b"Key".hex(), base=16)
+        pubkey = trezor_ethereum.get_public_node(
+            self._client,
+            n=binding_path.to_bip44_int_path(),
+        ).node.public_key
+        return hashlib.sha256(pubkey).digest().hex()[:16]
 
     def verify_secure_element(self, message: str) -> dict:
         digest = hashlib.sha256(message.encode("utf-8")).digest()
