@@ -83,6 +83,7 @@ from electrum_gui.common.basic.request.exceptions import ResponseException
 from electrum_gui.common.basic.request.restful import RestfulRequest
 from electrum_gui.common.coin import codes
 from electrum_gui.common.coin import manager as coin_manager
+from electrum_gui.common.hardware import manager as hardware_manager
 from electrum_gui.common.price import manager as price_manager
 from electrum_gui.common.provider import data as provider_data
 from electrum_gui.common.provider import exceptions as provider_exceptions
@@ -809,6 +810,7 @@ class AndroidCommands(commands.Commands):
                 create_failed_into[name] = str(e)
         return json.dumps(create_failed_into)
 
+    @orm_database.db.atomic()
     def import_create_hw_wallet(self, name, m, n, xpubs, hide_type=False, hd=False, path="bluetooth", coin="btc"):
         """
         Create a wallet
@@ -829,7 +831,19 @@ class AndroidCommands(commands.Commands):
                 return self._recovery_hd_derived_wallet(xpub=self.hw_info["xpub"], hw=True, path=path)
             self.set_multi_wallet_info(name, m, n)
             xpubs_list = json.loads(xpubs)
-            if self.hw_info.get("bip39_derivation"):
+
+            if is_coin_migrated(coin):
+                if self.hw_info.get("bip39_derivation"):
+                    wallet = GeneralWallet.from_hardware_with_custom_path(
+                        name, coin, self.config, path, self.hw_info["bip39_derivation"], xpubs_list[0][0]
+                    )
+                    wallet_type = wallet.db.get("wallet_type")
+                    wallet_info = self._base_create_wallet(name, wallet, coin, wallet_type)
+                else:
+                    wallet = GeneralWallet.from_hardware(name, coin, self.config, path, xpubs_list[0][0])
+                    wallet_type = wallet.db.get("wallet_type")
+                    wallet_info = self._base_create_wallet(name, wallet, coin, wallet_type)
+            elif self.hw_info.get("bip39_derivation"):
                 path = self.hw_info.get("bip39_derivation")
                 wallet_info, wallet = self._create_customer_wallet(name, xpubs_list, coin=coin)
             else:
@@ -2356,12 +2370,11 @@ class AndroidCommands(commands.Commands):
         :param password: as string
         :return: signature string
         """
-        if path:
-            self.trezor_manager.ensure_client(path)
         self._assert_wallet_isvalid()
         address = address.strip()
         message = message.strip()
-        chain_affinity = _get_chain_affinity(self.wallet.coin)
+        coin = self.wallet.coin
+        chain_affinity = _get_chain_affinity(coin)
         if chain_affinity == "eth":
             if not eth_utils.is_address(address):
                 raise UnavailableEthAddr()
@@ -2371,14 +2384,20 @@ class AndroidCommands(commands.Commands):
             txin_type = self.wallet.get_txin_type(address)
             if txin_type not in ["p2pkh", "p2wpkh", "p2wpkh-p2sh"]:
                 raise BaseException(_("Current wallet does not support signature message:{}".format(txin_type)))
-        else:
+        elif not is_coin_migrated(coin):
             raise UnsupportedCurrencyCoin()
+
         if self.wallet.is_watching_only():
             raise BaseException(_("This is a watching-only wallet."))
         if not self.wallet.is_mine(address):
             raise BaseException(_("The address is not in the current wallet."))
 
-        sig = self.wallet.sign_message(address, message, password)
+        if is_coin_migrated(coin):
+            sig = self.wallet.sign_message(address, message, password, path)
+        else:
+            if path:
+                self.trezor_manager.ensure_client(path)
+            sig = self.wallet.sign_message(address, message, password)
 
         return text_utils.force_text(sig)
 
@@ -2399,13 +2418,19 @@ class AndroidCommands(commands.Commands):
         elif chain_affinity == "eth":
             if not eth_utils.is_address(address):
                 raise UnavailableEthAddr()
-        else:
+        elif not is_coin_migrated(coin):
             raise UnsupportedCurrencyCoin()
+
         try:
-            self.trezor_manager.ensure_client(path)
-            verified = self.wallet.verify_message(address, message, signature)
+            if is_coin_migrated(coin):
+                verified = self.wallet.verify_message(address, message, signature, path=path)
+            else:
+                if path:
+                    self.trezor_manager.ensure_client(path)
+                verified = self.wallet.verify_message(address, message, signature)
         except Exception:
             verified = False
+
         return verified
 
     def get_cur_wallet_token_address(self):
@@ -2586,6 +2611,7 @@ class AndroidCommands(commands.Commands):
         fee_limit=None,
         nonce=None,
         auto_broadcast=True,
+        hardware_device_path=None,
         **kwargs,
     ):
         assert isinstance(self.wallet, GeneralWallet)
@@ -2593,7 +2619,8 @@ class AndroidCommands(commands.Commands):
         signed_tx = self.wallet.send(
             to_address,
             value,
-            password,
+            password=password,
+            hardware_device_path=hardware_device_path,
             token_address=token_address,
             fee_price_per_unit=fee_price_per_unit,
             fee_limit=fee_limit,
@@ -2732,6 +2759,7 @@ class AndroidCommands(commands.Commands):
                 to_address=to_addr,
                 value=value,
                 password=password,
+                hardware_device_path=path,
                 token_address=contract_addr,
                 fee_price_per_unit=gas_price,
                 fee_limit=gas_limit,
@@ -2960,9 +2988,12 @@ class AndroidCommands(commands.Commands):
         :return:1/except
         """
         try:
-            self.trezor_manager.plugin.show_address(
-                path=path, ui=CustomerUI(), wallet=self.wallet, address=address, coin=coin
-            )
+            if is_coin_migrated(self.wallet.coin) and isinstance(self.wallet, GeneralWallet):
+                self.wallet.show_address(hardware_device_path=path)
+            else:
+                self.trezor_manager.plugin.show_address(
+                    path=path, ui=CustomerUI(), wallet=self.wallet, address=address, coin=coin
+                )
             return "1"
         except Exception as e:
             raise BaseException(e)
@@ -2988,6 +3019,28 @@ class AndroidCommands(commands.Commands):
         :bip39_derivation: user defined path as string
         :return: xpub string
         """
+        self.hw_info.clear()
+
+        if is_coin_migrated(coin):
+            feature = hardware_manager.get_feature(path)
+            chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+            bip44_path = (
+                wallet_manager.generate_next_bip44_path_for_primary_hardware_wallet(chain_code, path)
+                if not bip39_derivation
+                else bip44.BIP44Path.from_bip44_path(bip39_derivation)
+            )
+            xpub = provider_manager.hardware_get_xpub(chain_code, path, bip44_path)
+            self.hw_info.update(
+                {
+                    "device_id": feature.get("serial_num"),
+                    "xpub": xpub,
+                    "account_id": bip44_path.index_of(bip44.BIP44Level.ACCOUNT),
+                    "type": bip44_path.index_of(bip44.BIP44Level.PURPOSE),
+                    "bip39_derivation": bip39_derivation,
+                }
+            )
+            return xpub
+
         self.hw_info["device_id"] = self.trezor_manager.get_device_id(path, from_recovery=from_recovery)
         chain_affinity = _get_chain_affinity(coin)
         if bip39_derivation is None:
@@ -3041,7 +3094,11 @@ class AndroidCommands(commands.Commands):
         :coin: btc/eth as string
         :return: xpub as string
         """
+        if is_coin_migrated(coin):
+            return self.get_xpub_from_hw(path=path, _type=_type, coin=coin, bip39_derivation=bip39_derivation)
+
         xpub = self.get_xpub_from_hw(path=path, _type=_type, coin=coin)
+
         self.hw_info["xpub"] = xpub
         if bip39_derivation is None:
             list_info = self.get_derived_list(xpub + coin.lower(), hw=True)
@@ -3488,7 +3545,7 @@ class AndroidCommands(commands.Commands):
         :param path: NFC/android_usb/bluetooth as str
         :return:
         """
-        if not hw and is_coin_migrated(coin):
+        if is_coin_migrated(coin):
             chain_code = coin_manager.legacy_coin_to_chain_code(coin)
             chain_info = coin_manager.get_chain_info(chain_code)
             address_encoding = None
@@ -3497,7 +3554,11 @@ class AndroidCommands(commands.Commands):
                 address_encoding = purpose_to_address_encoding.get(int(purpose))
 
             address_encoding = address_encoding or chain_info.default_address_encoding
-            if derived:
+            if hw:
+                return wallet_manager.generate_next_bip44_path_for_primary_hardware_wallet(
+                    chain_code, path, address_encoding
+                ).to_bip44_path()
+            elif derived:
                 return wallet_manager.generate_next_bip44_path_for_derived_primary_wallet(
                     chain_code, address_encoding
                 ).to_bip44_path()
