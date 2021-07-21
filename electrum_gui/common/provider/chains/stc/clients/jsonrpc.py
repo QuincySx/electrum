@@ -89,15 +89,21 @@ class STCJsonRPC(ClientInterface):
         return int(balance.token)
 
     def get_transaction_by_txid(self, txid: str) -> Transaction:
-        tx, receipt = self.rpc.batch_call(
+        pending_tx, tx, receipt = self.rpc.batch_call(
             [
+                ("txpool.pending_txn", [txid]),
                 ("chain.get_transaction", [txid]),
                 ("chain.get_transaction_info", [txid]),
-            ]
+            ],
+            ignore_errors=True,
         )
-        if tx is None:
+
+        if pending_tx is None and tx is None:
             raise TransactionNotFound(txid)
-        else:
+        elif pending_tx is not None:
+            require(txid == pending_tx.get("transaction_hash"))
+            tx = pending_tx.get("raw_txn")
+        elif pending_tx is None and tx is not None:
             require(txid == tx.get("transaction_hash"))
             tx = tx.get("user_transaction").get("raw_txn")
 
