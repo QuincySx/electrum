@@ -123,7 +123,7 @@ class CFXClient(ClientInterface, BatchGetAddressMixin):
             )
             status = (
                 TransactionStatus.CONFIRM_SUCCESS
-                if receipt.get("outcomeStatus") == "0x1"
+                if receipt.get("outcomeStatus") == "0x0"
                 else TransactionStatus.CONFIRM_REVERTED
             )
             gas_used = _hex2int(receipt.get("gasUsed", "0x0"))
