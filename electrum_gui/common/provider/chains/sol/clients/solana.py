@@ -97,9 +97,9 @@ class Solana(ClientInterface, SearchTransactionMixin):
     def search_txs_by_address(self, address: str, paginate: Optional[TxPaginate] = None) -> List[Transaction]:
         """Retrieve the latest 20 transactions."""
         if paginate:
-            # TODO: getConfirmedSignaturesForAddress2 need txid
+            # TODO: getSignaturesForAddress need txid
             pass
-        response = self.rpc.call("getConfirmedSignaturesForAddress2", [address, {"limit": 20}])
+        response = self.rpc.call("getSignaturesForAddress", [address, {"limit": 20}])
         _batch_body = []
         for transaction in response:
             txid = transaction["signature"]
@@ -131,10 +131,10 @@ class Solana(ClientInterface, SearchTransactionMixin):
             from_address = transaction_info["source"]
             to_address = transaction_info["destination"]
             token_address = None
-            if program_id == spl_token.TOKEN_PROGRAM_ID:
+            if program_id == str(spl_token.TOKEN_PROGRAM_ID):
                 token_address = result["meta"]["postTokenBalances"][0]["mint"]
                 value = transaction_info["amount"]
-            elif program_id == spl_token.SYS_PROGRAM_ID:
+            elif program_id == str(spl_token.SYS_PROGRAM_ID):
                 value = transaction_info["lamports"]
             else:
                 raise Exception("unknown program_id")
