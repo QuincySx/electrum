@@ -14,8 +14,10 @@ from trezorlib.client import TrezorClient, PASSPHRASE_ON_DEVICE
 from trezorlib.exceptions import TrezorFailure, Cancelled, OutdatedFirmwareError
 from trezorlib.messages import WordRequestType, RecoveryDeviceType, ButtonRequestType
 from trezorlib import protobuf as trezor_protobuf
-import trezorlib.btc
-import trezorlib.device
+from trezorlib import ethereum as trezor_ethereum
+from trezorlib import btc as trezor_btc
+from trezorlib import device as trezor_device
+
 from trezorlib.customer_ui import CustomerUI
 
 MESSAGES = {
@@ -145,7 +147,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
         with self.run_flow(creating_wallet=creating):
             if xtype == "standard":
                 xtype = 'p2pkh'
-            node = trezorlib.btc.get_public_node(self.client, address_n, coin_name=self.plugin.get_coin_name(), script_type=self.plugin.get_trezor_input_script_type(xtype)).node
+            node = trezor_btc.get_public_node(self.client, address_n, coin_name=self.plugin.get_coin_name(), script_type=self.plugin.get_trezor_input_script_type(xtype)).node
         return BIP32Node(xtype=xtype if xtype != "p2pkh" else 'standard',
                          eckey=ecc.ECPubkey(node.public_key),
                          chaincode=node.chain_code,
@@ -156,7 +158,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
     def get_eth_xpub(self, bip32_path=None):
         address_n = parse_path(bip32_path)
         with self.run_flow(''):
-            node = trezorlib.ethereum.get_public_node(self.client, address_n).node
+            node = trezor_ethereum.get_public_node(self.client, address_n).node
         # return node.xpub
         return BIP32Node(xtype='standard',
                          eckey=ecc.ECPubkey(node.public_key),
@@ -166,35 +168,35 @@ class TrezorClientBase(HardwareClientBase, Logger):
                          child_number=self.i4b(node.child_num)).to_xpub()
 
     def apply_settings(self, **kwargs) -> str:
-        return trezorlib.device.apply_settings(self.client, **kwargs)
+        return trezor_device.apply_settings(self.client, **kwargs)
 
     def backup(self) -> str:
         with self.run_flow(''):
-            return trezorlib.device.se_backup(self.client).hex()
+            return trezor_device.se_backup(self.client).hex()
 
     def se_proxy(self, message) -> str:
         with self.run_flow(''):
-            return trezorlib.device.se_proxy(self.client, message).hex()
+            return trezor_device.se_proxy(self.client, message).hex()
 
     def se_verify(self, digest: bytes) -> Tuple[str, str]:
-        resp = trezorlib.device.se_verify(self.client, digest)
+        resp = trezor_device.se_verify(self.client, digest)
         return resp.cert.hex(), resp.signature.hex()
 
     def recovery(self, *args):
         with self.run_flow(''):
-            return trezorlib.device.se_restore(self.client, *args)
+            return trezor_device.se_restore(self.client, *args)
 
     def bx_inquire_whitelist(self, **kwargs):
         with self.run_flow(''):
-            return trezorlib.device.bx_inquire_whitelist(self.client, **kwargs)
+            return trezor_device.bx_inquire_whitelist(self.client, **kwargs)
 
     def bx_add_or_delete_whitelist(self, **kwargs):
         with self.run_flow(''):
-            return trezorlib.device.bx_add_or_delete_whitelist(self.client, **kwargs)
+            return trezor_device.bx_add_or_delete_whitelist(self.client, **kwargs)
 
     def anti_counterfeiting_verify(self, inputmessage):
         with self.run_flow(_("Confirm anti_counterfeiting_verify on your {} device")):
-            return trezorlib.device.anti_counterfeiting_verify(self.client, inputmessage=inputmessage)
+            return trezor_device.anti_counterfeiting_verify(self.client, inputmessage=inputmessage)
 
     def toggle_passphrase(self):
         if self.features.passphrase_protection:
@@ -203,23 +205,23 @@ class TrezorClientBase(HardwareClientBase, Logger):
             msg = _("Confirm on your {} device to enable passphrases")
         enabled = not self.features.passphrase_protection
         with self.run_flow(msg):
-            trezorlib.device.apply_settings(self.client, use_passphrase=enabled)
+            trezor_device.apply_settings(self.client, use_passphrase=enabled)
 
     def change_language(self, language):
         with self.run_flow(_("Confirm the new language on your {} device")):
-            trezorlib.device.apply_settings(self.client, language=language)
+            trezor_device.apply_settings(self.client, language=language)
 
     def change_label(self, label):
         with self.run_flow(_("Confirm the new label on your {} device")):
-            trezorlib.device.apply_settings(self.client, label=label)
+            trezor_device.apply_settings(self.client, label=label)
 
     def change_homescreen(self, homescreen):
         with self.run_flow(_("Confirm on your {} device to change your home screen")):
-            trezorlib.device.apply_settings(self.client, homescreen=homescreen)
+            trezor_device.apply_settings(self.client, homescreen=homescreen)
 
     def set_bixin_app(self, is_bixin):
         with self.run_flow(_("used in oneKey app only")):
-            trezorlib.device.apply_settings(self.client, is_bixinapp=is_bixin)
+            trezor_device.apply_settings(self.client, is_bixinapp=is_bixin)
 
     def set_pin(self, remove):
         if remove:
@@ -229,7 +231,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
         else:
             msg = _("Confirm on your {} device to set a PIN")
         with self.run_flow(msg):
-            return trezorlib.device.change_pin(self.client, remove)
+            return trezor_device.change_pin(self.client, remove)
 
     def clear_session(self):
         '''Clear the session to force pin (and passphrase if enabled)
@@ -269,7 +271,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
         with self.run_flow():
             if coin == 'btc':
                 coin_name = self.plugin.get_coin_name()
-                return trezorlib.btc.get_address(
+                return trezor_btc.get_address(
                     self.client,
                     coin_name,
                     address_n,
@@ -277,7 +279,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
                     script_type=script_type,
                     multisig=multisig)
             else:
-                return trezorlib.ethereum.get_address(
+                return trezor_ethereum.get_address(
                     self.client,
                     address_n,
                     show_display=True,
@@ -286,7 +288,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
     def verify_message(self, address_str, message, sign_info):
         with self.run_flow():
             coin_name = self.plugin.get_coin_name()
-            return trezorlib.btc.verify_message(
+            return trezor_btc.verify_message(
                 self.client,
                 signature=sign_info,
                 coin_name=coin_name,
@@ -295,7 +297,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
 
     def verify_eth_message(self, address_str, message, sign_info):
         with self.run_flow():
-            return trezorlib.ethereum.verify_message(
+            return trezor_ethereum.verify_message(
                 self.client,
                 address=address_str,
                 signature=sign_info,
@@ -305,7 +307,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
         address_n = parse_path(address_str)
         coin_name = self.plugin.get_coin_name()
         with self.run_flow():
-            return trezorlib.btc.sign_message(
+            return trezor_btc.sign_message(
                 self.client,
                 coin_name,
                 address_n,
@@ -315,7 +317,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
     def sign_eth_message(self, address_str, message):
         address_n = parse_path(address_str)
         with self.run_flow():
-            return trezorlib.ethereum.sign_message(
+            return trezor_ethereum.sign_message(
                 self.client,
                 address_n,
                 message)
@@ -323,7 +325,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
     def recover_device(self, recovery_type, *args, **kwargs):
         input_callback = self.mnemonic_callback(recovery_type)
         with self.run_flow():
-            return trezorlib.device.recover(
+            return trezor_device.recover(
                 self.client,
                 *args,
                 input_callback=input_callback,
@@ -334,27 +336,27 @@ class TrezorClientBase(HardwareClientBase, Logger):
 
     def bixin_backup_device(self):
         with self.run_flow(''):
-            return trezorlib.device.bixin_backup_device(self.client)
+            return trezor_device.bixin_backup_device(self.client)
 
     def bixin_load_device(self, *args, **kwargs):
         with self.run_flow(''):
-            return trezorlib.device.bixin_load_device(self.client, *args, **kwargs)
+            return trezor_device.bixin_load_device(self.client, *args, **kwargs)
 
     def sign_tx(self, *args, **kwargs):
         with self.run_flow():
-            return trezorlib.btc.sign_tx(self.client, *args, **kwargs)
+            return trezor_btc.sign_tx(self.client, *args, **kwargs)
 
     def sign_eth_tx(self, *args, **kwargs):
         with self.run_flow():
-            return trezorlib.ethereum.sign_tx(self.client, *args, **kwargs)
+            return trezor_ethereum.sign_tx(self.client, *args, **kwargs)
 
     def reset_device(self, *args, **kwargs):
         with self.run_flow():
-            return trezorlib.device.reset(self.client, *args, **kwargs)
+            return trezor_device.reset(self.client, *args, **kwargs)
 
     def wipe_device(self, *args, **kwargs):
         with self.run_flow():
-            return trezorlib.device.wipe(self.client, *args, **kwargs)
+            return trezor_device.wipe(self.client, *args, **kwargs)
 
     # ========= UI methods ==========
 
@@ -454,7 +456,7 @@ class TrezorClientBase(HardwareClientBase, Logger):
         if self.features.bootloader_mode:
             return True
         else:
-            trezorlib.device.reboot(self.client)
+            trezor_device.reboot(self.client)
             time.sleep(2)
             # this line would refresh features
             self.client.init_device()
