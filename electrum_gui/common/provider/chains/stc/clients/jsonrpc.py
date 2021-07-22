@@ -133,6 +133,7 @@ class STCJsonRPC(ClientInterface):
             if isinstance(
                 _script_function_call,
                 (
+                    starcoin_stdlib.ScriptFunctionCall__PeerToPeer,
                     starcoin_stdlib.ScriptFunctionCall__PeerToPeerV2,
                     # starcoin_stdlib.ScriptFunctionCall__AcceptToken, todo parse accept token tx
                 ),
