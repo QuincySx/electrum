@@ -4,6 +4,7 @@ from decimal import Decimal
 from typing import List, Optional, Set, Union
 
 from electrum import crypto, simple_config, storage, util, wallet_db
+from electrum_gui.common.basic import bip44
 from electrum_gui.common.basic.functional.require import require
 from electrum_gui.common.basic.orm.database import db
 from electrum_gui.common.coin import manager as coin_manager
@@ -157,6 +158,55 @@ class GeneralWallet(object):
         return cls(my_db, None, config)
 
     @classmethod
+    def from_hardware(
+        cls,
+        name: str,
+        coin: str,
+        config: simple_config.SimpleConfig,
+        hardware_device_path: str,
+        xpub_required: str,
+    ):
+        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        bip44_path = wallet_manager.generate_next_bip44_path_for_primary_hardware_wallet(
+            chain_code, hardware_device_path
+        )
+        xpub_generated = provider_manager.hardware_get_xpub(chain_code, hardware_device_path, bip44_path)
+        require(
+            xpub_generated == xpub_required,
+            f"xpub mismatch. xpub_required: {xpub_required}, xpub_generated: {xpub_generated}",
+        )
+
+        wallet_info = wallet_manager.create_next_primary_hardware_wallet(name, chain_code, hardware_device_path)
+        legacy_wallet_type = f"{coin}-hw-derived"
+        my_db = cls.create_wallet_db(coin, legacy_wallet_type, wallet_info)
+        return cls(my_db, None, config)
+
+    @classmethod
+    def from_hardware_with_custom_path(
+        cls,
+        name: str,
+        coin: str,
+        config: simple_config.SimpleConfig,
+        hardware_device_path: str,
+        bip44_path: str,
+        xpub_required: str,
+    ):
+        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        bip44_path = bip44.BIP44Path.from_bip44_path(bip44_path)
+        xpub_generated = provider_manager.hardware_get_xpub(chain_code, hardware_device_path, bip44_path)
+        require(
+            xpub_generated == xpub_required,
+            f"xpub mismatch. xpub_required: {xpub_required}, xpub_generated: {xpub_generated}",
+        )
+
+        wallet_info = wallet_manager.create_standalone_hardware_wallet(
+            name, chain_code, hardware_device_path, bip44_path.to_bip44_path()
+        )
+        legacy_wallet_type = f"{coin}-hw-derived-customer"
+        my_db = cls.create_wallet_db(coin, legacy_wallet_type, wallet_info)
+        return cls(my_db, None, config)
+
+    @classmethod
     def create_wallet_db(cls, coin: str, legacy_wallet_type: str, wallet_info: dict):
         my_db = wallet_db.WalletDB("", manual_upgrades=False)
         my_db.put("wallet_type", legacy_wallet_type)  # Backward compatible
@@ -260,11 +310,11 @@ class GeneralWallet(object):
         pass
 
     def update_password(self, old_pw, new_pw, *args, **kwargs):
-        if old_pw and new_pw:
+        if old_pw and new_pw and WalletType.is_software_wallet(self.general_wallet_type):
             wallet_manager.update_wallet_password(self.general_wallet_id, old_pw, new_pw)
 
     def check_password(self, password, str_pw=None):
-        if password:
+        if password and WalletType.is_software_wallet(self.general_wallet_type):
             wallet_manager.check_wallet_password(self.general_wallet_id, password)
 
     def get_all_balance(self) -> dict:
@@ -362,7 +412,8 @@ class GeneralWallet(object):
         self,
         to_address: str,
         value: int,
-        password: str,
+        password: str = None,
+        hardware_device_path: str = None,
         token_address: str = None,
         nonce: int = None,
         fee_limit: int = None,
@@ -386,7 +437,8 @@ class GeneralWallet(object):
             coin.code,
             to_address,
             value,
-            password,
+            password=password,
+            hardware_device_path=hardware_device_path,
             nonce=nonce,
             fee_limit=fee_limit,
             fee_price_per_unit=fee_price_per_unit,
@@ -411,18 +463,23 @@ class GeneralWallet(object):
     def create_new_address(self, for_change: bool = False):
         raise NotImplementedError()
 
-    def sign_message(self, address: str, message: str, password: str = None):
-        raise NotImplementedError()
+    def show_address(self, hardware_device_path: str):
+        return wallet_manager.confirm_address_on_hardware(self.general_wallet_id, hardware_device_path)
 
-    def verify_message(self, address, message, sig):
-        raise NotImplementedError()
+    def sign_message(self, address: str, message: str, password: str = None, path: str = None) -> str:
+        return wallet_manager.sign_message(
+            self.general_wallet_id, message, password=password, hardware_device_path=path
+        )
+
+    def verify_message(self, address, message, sig, path: str = None) -> bool:
+        return wallet_manager.verify_message(self.chain_code, address, message, sig, hardware_device_path=path)
 
     def clear_coin_price_cache(self):
         # bypass
         pass
 
     def is_watching_only(self) -> bool:
-        return self.general_wallet_type == WalletType.WATCHONLY
+        return WalletType.is_watchonly_wallet(self.general_wallet_type)
 
     def get_keystore(self):
         return self.keystore

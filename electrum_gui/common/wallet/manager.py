@@ -1,31 +1,30 @@
+import collections
+import contextlib
 import datetime
+import decimal
 import functools
+import itertools
 import logging
-from collections import defaultdict
-from contextlib import contextmanager
-from decimal import Decimal
-from itertools import groupby
 from typing import Iterable, List, Tuple, Union
 
 import eth_account
 
+from electrum_gui.common.basic import bip44
 from electrum_gui.common.basic.functional.require import require
 from electrum_gui.common.basic.functional.timing import timing_logger
-from electrum_gui.common.basic.orm.database import db
+from electrum_gui.common.basic.orm import database as orm_database
 from electrum_gui.common.coin import codes
+from electrum_gui.common.coin import data as coin_data
 from electrum_gui.common.coin import manager as coin_manager
-from electrum_gui.common.coin.data import ChainInfo
+from electrum_gui.common.hardware import manager as hardware_manager
+from electrum_gui.common.provider import data as provider_data
 from electrum_gui.common.provider import manager as provider_manager
-from electrum_gui.common.provider.data import SignedTx, TxBroadcastReceipt, UnsignedTx
+from electrum_gui.common.secret import data as secret_data
 from electrum_gui.common.secret import manager as secret_manager
-from electrum_gui.common.secret.data import PubKeyType
+from electrum_gui.common.transaction import data as transaction_data
 from electrum_gui.common.transaction import manager as transaction_manager
-from electrum_gui.common.transaction.data import TxActionStatus
-from electrum_gui.common.wallet import daos, exceptions, utils
-from electrum_gui.common.wallet.bip44 import BIP44Level, BIP44Path
-from electrum_gui.common.wallet.data import WalletType
+from electrum_gui.common.wallet import daos, data, exceptions, models, utils
 from electrum_gui.common.wallet.handlers import get_handler_by_chain_model
-from electrum_gui.common.wallet.models import AccountModel, AssetModel, WalletModel
 
 logger = logging.getLogger("app.wallet")
 
@@ -34,7 +33,7 @@ def has_primary_wallet() -> bool:
     return daos.wallet.has_primary_wallet()
 
 
-@contextmanager
+@contextlib.contextmanager
 def _require_primary_wallet_exists():
     if not has_primary_wallet():
         raise exceptions.PrimaryWalletNotExists()
@@ -42,7 +41,7 @@ def _require_primary_wallet_exists():
     yield
 
 
-@contextmanager
+@contextlib.contextmanager
 def _require_primary_wallet_not_exists():
     if has_primary_wallet():
         raise exceptions.PrimaryWalletAlreadyExists()
@@ -50,7 +49,7 @@ def _require_primary_wallet_not_exists():
     yield
 
 
-def _get_wallet_by_id(wallet_id: int) -> WalletModel:
+def _get_wallet_by_id(wallet_id: int) -> models.WalletModel:
     wallet_model = daos.wallet.get_wallet_by_id(wallet_id)
     if wallet_model is None:
         raise exceptions.WalletNotFound(wallet_id)
@@ -61,14 +60,18 @@ def _get_wallet_by_id(wallet_id: int) -> WalletModel:
 def _create_default_wallet(
     chain_code: str,
     name: str,
-    wallet_type: WalletType,
+    wallet_type: data.WalletType,
     address: str,
     address_encoding: str = None,
     pubkey_id: int = None,
     bip44_path: str = None,
+    hardware_key_id: str = None,
 ) -> dict:
-    with db.atomic():
-        wallet = daos.wallet.create_wallet(name, wallet_type, chain_code)
+    if hardware_key_id is not None:
+        require(data.WalletType.is_hardware_wallet(wallet_type))
+
+    with orm_database.db.atomic():
+        wallet = daos.wallet.create_wallet(name, wallet_type, chain_code, hardware_key_id)
         account = daos.account.create_account(
             wallet.id,
             chain_code,
@@ -91,7 +94,7 @@ def import_watchonly_wallet_by_address(name: str, chain_code: str, address: str)
     return _create_default_wallet(
         chain_code,
         name,
-        WalletType.WATCHONLY,
+        data.WalletType.WATCHONLY,
         address_validation.normalized_address,
         address_encoding=address_validation.encoding,
     )
@@ -114,12 +117,12 @@ def import_standalone_wallet_by_prvkey(
     verifier = secret_manager.raw_create_key_by_prvkey(chain_info.curve, prvkey).as_pubkey_version()
     address = provider_manager.pubkey_to_address(chain_code, verifier, encoding=address_encoding)
 
-    with db.atomic():
+    with orm_database.db.atomic():
         pubkey_model, _ = secret_manager.import_prvkey(password, chain_info.curve, prvkey)
         wallet_info = _create_default_wallet(
             chain_code,
             name,
-            WalletType.SOFTWARE_STANDALONE_PRVKEY,
+            data.WalletType.SOFTWARE_STANDALONE_PRVKEY,
             address,
             pubkey_id=pubkey_model.id,
             address_encoding=address_encoding,
@@ -153,8 +156,8 @@ def import_standalone_wallet_by_mnemonic(
     if bip44_path is None:
         bip44_path = get_default_bip44_path(chain_code, address_encoding).to_bip44_path()
     else:
-        bip44_path_ins = BIP44Path.from_bip44_path(bip44_path)
-        last_hardened_level = BIP44Level[chain_info.bip44_last_hardened_level.upper()]
+        bip44_path_ins = bip44.BIP44Path.from_bip44_path(bip44_path)
+        last_hardened_level = chain_info.bip44_last_hardened_level
         require(bip44_path_ins.last_hardened_level >= last_hardened_level)
 
     master_seed = secret_manager.mnemonic_to_seed(mnemonic, passphrase)
@@ -163,7 +166,7 @@ def import_standalone_wallet_by_mnemonic(
     ).as_pubkey_version()
     address = provider_manager.pubkey_to_address(chain_code, verifier, encoding=address_encoding)
 
-    with db.atomic():
+    with orm_database.db.atomic():
         secret_key_model = secret_manager.import_mnemonic(password, mnemonic, passphrase)
         pubkey_model = secret_manager.import_pubkey(
             chain_info.curve, verifier.get_pubkey(), path=bip44_path, secret_key_id=secret_key_model.id
@@ -171,7 +174,7 @@ def import_standalone_wallet_by_mnemonic(
         wallet_info = _create_default_wallet(
             chain_code,
             name,
-            WalletType.SOFTWARE_STANDALONE_MNEMONIC,
+            data.WalletType.SOFTWARE_STANDALONE_MNEMONIC,
             address,
             address_encoding=address_encoding,
             pubkey_id=pubkey_model.id,
@@ -270,7 +273,7 @@ def search_existing_wallets(
 
 
 def _generate_searching_bip44_address_paths(
-    chain_info: ChainInfo, bip44_account: int = 0, bip44_max_searching_address_index: int = 20
+    chain_info: coin_data.ChainInfo, bip44_account: int = 0, bip44_max_searching_address_index: int = 20
 ) -> Iterable[Union[str, str]]:
     options = chain_info.bip44_purpose_options or {}
     default_address_encoding = chain_info.default_address_encoding
@@ -280,10 +283,10 @@ def _generate_searching_bip44_address_paths(
     elif default_address_encoding in options:
         options = {default_address_encoding: options.pop(default_address_encoding), **options}
 
-    last_hardened_level = BIP44Level[chain_info.bip44_last_hardened_level.upper()]
-    target_level = BIP44Level[chain_info.bip44_target_level.upper()]
+    last_hardened_level = chain_info.bip44_last_hardened_level
+    target_level = chain_info.bip44_target_level
     for encoding, purpose in options.items():
-        ins = BIP44Path(
+        ins = bip44.BIP44Path(
             purpose=purpose,
             coin_type=chain_info.bip44_coin_type,
             account=bip44_account,
@@ -306,7 +309,7 @@ def create_selected_primary_wallets(
     to_be_created_wallets: List[dict] = []
     selected_wallets = sorted(selected_wallets, key=lambda i: i["chain_code"])
 
-    for chain_code, group in groupby(selected_wallets, lambda i: i["chain_code"]):
+    for chain_code, group in itertools.groupby(selected_wallets, lambda i: i["chain_code"]):
         chain_info = coin_manager.get_chain_info(chain_code)
 
         for wallet in group:
@@ -323,7 +326,7 @@ def create_selected_primary_wallets(
 
     require(len(to_be_created_wallets) > 0)
 
-    with db.atomic():
+    with orm_database.db.atomic():
         with _require_primary_wallet_not_exists():
             secret_key_model = secret_manager.import_mnemonic(password, mnemonic, passphrase)
 
@@ -335,7 +338,7 @@ def create_selected_primary_wallets(
                 wallet_info = _create_default_wallet(
                     wallet["chain_code"],
                     wallet["name"],
-                    WalletType.SOFTWARE_PRIMARY,
+                    data.WalletType.SOFTWARE_PRIMARY,
                     wallet["address"],
                     address_encoding=wallet["address_encoding"],
                     pubkey_id=pubkey_model.id,
@@ -356,9 +359,9 @@ def update_wallet_password(wallet_id: int, old_password: str, new_password: str)
     require(
         wallet.type
         in (
-            WalletType.SOFTWARE_PRIMARY,
-            WalletType.SOFTWARE_STANDALONE_PRVKEY,
-            WalletType.SOFTWARE_STANDALONE_MNEMONIC,
+            data.WalletType.SOFTWARE_PRIMARY,
+            data.WalletType.SOFTWARE_STANDALONE_PRVKEY,
+            data.WalletType.SOFTWARE_STANDALONE_MNEMONIC,
         )
     )
     require(bool(old_password) and bool(new_password))
@@ -392,19 +395,23 @@ def create_next_derived_primary_wallet(chain_code: str, name: str, password: str
     secret_key_id = _get_wallet_secret_key_id(first_primary_wallet.id)
 
     new_pubkey_model = secret_manager.derive_by_secret_key(
-        password, chain_info.curve, secret_key_id, next_derived_bip44_path, target_pubkey_type=PubKeyType.PUBKEY
+        password,
+        chain_info.curve,
+        secret_key_id,
+        next_derived_bip44_path,
+        target_pubkey_type=secret_data.PubKeyType.PUBKEY,
     )
     verifier = secret_manager.raw_create_verifier_by_pubkey(chain_info.curve, bytes.fromhex(new_pubkey_model.pubkey))
     address = provider_manager.pubkey_to_address(chain_code, verifier, encoding=address_encoding)
 
-    with db.atomic():
+    with orm_database.db.atomic():
         pubkey_model = secret_manager.import_pubkey(
             chain_info.curve, verifier.get_pubkey(), path=next_derived_bip44_path, secret_key_id=secret_key_id
         )
         wallet_info = _create_default_wallet(
             chain_code,
             name,
-            WalletType.SOFTWARE_PRIMARY,
+            data.WalletType.SOFTWARE_PRIMARY,
             address,
             address_encoding=address_encoding,
             pubkey_id=pubkey_model.id,
@@ -414,27 +421,36 @@ def create_next_derived_primary_wallet(chain_code: str, name: str, password: str
     return wallet_info
 
 
-def generate_next_bip44_path_for_derived_primary_wallet(chain_code: str, address_encoding: str = None) -> BIP44Path:
+def generate_next_bip44_path_for_derived_primary_wallet(
+    chain_code: str, address_encoding: str = None
+) -> bip44.BIP44Path:
     chain_info = coin_manager.get_chain_info(chain_code)
     address_encoding = address_encoding or chain_info.default_address_encoding
-    default_bip44_path = get_default_bip44_path(chain_code, address_encoding)
-    existing_primary_wallets = daos.wallet.list_all_wallets(chain_code, WalletType.SOFTWARE_PRIMARY)
+    existing_primary_wallets = daos.wallet.list_all_wallets(chain_code, data.WalletType.SOFTWARE_PRIMARY)
 
-    if not existing_primary_wallets:
+    return _generate_next_bip44_path(chain_info, address_encoding, existing_primary_wallets)
+
+
+def _generate_next_bip44_path(
+    chain_info: coin_data.ChainInfo, address_encoding: str, existing_wallets: List[models.WalletModel]
+):
+    default_bip44_path = get_default_bip44_path(chain_info.chain_code, address_encoding)
+
+    if not existing_wallets:
         return default_bip44_path
     else:
-        bip44_auto_increment_level = BIP44Level[chain_info.bip44_auto_increment_level.upper()]
-        target_level = BIP44Level[chain_info.bip44_target_level.upper()]
-        require(bip44_auto_increment_level >= BIP44Level.ACCOUNT)
+        bip44_auto_increment_level = chain_info.bip44_auto_increment_level
+        target_level = chain_info.bip44_target_level
+        require(bip44_auto_increment_level >= bip44.BIP44Level.ACCOUNT)
 
         last_account_lookup = {
             i.wallet_id: i
             for i in daos.account.query_accounts_by_wallets(
-                [i.id for i in existing_primary_wallets], address_encoding=address_encoding
+                [i.id for i in existing_wallets], address_encoding=address_encoding
             )
         }
         indexes = (
-            BIP44Path.from_bip44_path(i.bip44_path)
+            bip44.BIP44Path.from_bip44_path(i.bip44_path)
             .to_target_level(bip44_auto_increment_level)
             .index_of(bip44_auto_increment_level)
             for i in last_account_lookup.values()
@@ -450,7 +466,7 @@ def generate_next_bip44_path_for_derived_primary_wallet(chain_code: str, address
 
 def export_mnemonic(wallet_id: int, password: str) -> Tuple[str, str]:
     wallet_model = _get_wallet_by_id(wallet_id)
-    require(wallet_model.type in (WalletType.SOFTWARE_PRIMARY, WalletType.SOFTWARE_STANDALONE_MNEMONIC))
+    require(wallet_model.type in (data.WalletType.SOFTWARE_PRIMARY, data.WalletType.SOFTWARE_STANDALONE_MNEMONIC))
     secret_key_id = _get_wallet_secret_key_id(wallet_id)
     mnemonic, passphrase = secret_manager.export_mnemonic(password, secret_key_id)
     return mnemonic, passphrase
@@ -460,7 +476,11 @@ def export_prvkey(wallet_id: int, password: str) -> str:
     wallet_model = _get_wallet_by_id(wallet_id)
     require(
         wallet_model.type
-        in (WalletType.SOFTWARE_PRIMARY, WalletType.SOFTWARE_STANDALONE_MNEMONIC, WalletType.SOFTWARE_STANDALONE_PRVKEY)
+        in (
+            data.WalletType.SOFTWARE_PRIMARY,
+            data.WalletType.SOFTWARE_STANDALONE_MNEMONIC,
+            data.WalletType.SOFTWARE_STANDALONE_PRVKEY,
+        )
     )
     account = get_default_account_by_wallet(wallet_id)
     return secret_manager.export_prvkey(password, account.pubkey_id)
@@ -480,17 +500,20 @@ def get_wallet_info_by_id(wallet_id: int, only_visible: bool = True) -> dict:
     return _build_wallet_info(wallet_model, default_account, assets)
 
 
-def get_all_assets_by_wallet(wallet_id: int, only_visible: bool = True) -> List[AssetModel]:
+def get_all_assets_by_wallet(wallet_id: int, only_visible: bool = True) -> List[models.AssetModel]:
     default_account = get_default_account_by_wallet(wallet_id)
     return daos.asset.query_assets_by_accounts([default_account.id], only_visible=only_visible)
 
 
 def _build_wallet_info(
-    wallet: WalletModel, account: AccountModel, assets: List[AssetModel], coin_info_lookup: dict = None
+    wallet: models.WalletModel,
+    account: models.AccountModel,
+    assets: List[models.AssetModel],
+    coin_info_lookup: dict = None,
 ) -> dict:
     wallet_info = {
         "wallet_id": wallet.id,
-        "wallet_type": WalletType(wallet.type).name,
+        "wallet_type": data.WalletType.from_int(wallet.type).name,
         "name": wallet.name,
         "chain_code": wallet.chain_code,
         "address": account.address,
@@ -526,7 +549,7 @@ def get_all_wallets_info(chain_code: str = None, force_update: bool = False, onl
     assets = refresh_assets(assets, force_update=force_update)
 
     last_account_lookup = {i.wallet_id: i for i in accounts}  # bind the last account to the wallet
-    asset_lookup = defaultdict(list)
+    asset_lookup = collections.defaultdict(list)
     for asset in assets:
         asset_lookup[asset.account_id].append(asset)
 
@@ -550,7 +573,7 @@ def get_all_wallets_info(chain_code: str = None, force_update: bool = False, onl
     return wallets_info
 
 
-def get_default_account_by_wallet(wallet_id: int) -> AccountModel:
+def get_default_account_by_wallet(wallet_id: int) -> models.AccountModel:
     last_account = daos.account.query_first_account_by_wallet(wallet_id)  # assume the last account as default
     if last_account is None:
         raise exceptions.IllegalWalletState()
@@ -598,16 +621,27 @@ def send(
     coin_code: str,
     to_address: str,
     value: int,
-    password: str,
+    password: str = None,
+    hardware_device_path: str = None,
     nonce: int = None,
     fee_limit: int = None,
     fee_price_per_unit: int = None,
     payload: dict = None,
     auto_broadcast: bool = True,
-) -> SignedTx:
+) -> provider_data.SignedTx:
     wallet = _get_wallet_by_id(wallet_id)
-    if wallet.type == WalletType.WATCHONLY:
+    wallet_type = wallet.type
+
+    if data.WalletType.is_watchonly_wallet(wallet_type):
         raise exceptions.IllegalWalletOperation("Watchonly wallet can not send asset")
+    elif data.WalletType.is_software_wallet(wallet_type):
+        require(password, exceptions.IllegalWalletOperation("Require password"))
+    elif data.WalletType.is_hardware_wallet(wallet_type):
+        require(hardware_device_path, exceptions.IllegalWalletOperation("Require hardware_device_path"))
+        hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
+        require(hardware_key_id == wallet.hardware_key_id, exceptions.IllegalWalletOperation("Device mismatch"))
+    else:
+        raise ValueError(f"Illegal wallet_type: {wallet_type}")
 
     coin_info = coin_manager.get_coin_info(coin_code)
     if coin_info.chain_code != wallet.chain_code:
@@ -629,7 +663,12 @@ def send(
         raise exceptions.IllegalUnsignedTx(validation_message)
 
     accounts = daos.account.query_accounts_by_addresses(wallet.id, [i.address for i in unsigned_tx.inputs])
-    signed_tx = _sign_tx(wallet, accounts, password, unsigned_tx)
+    if data.WalletType.is_software_wallet(wallet_type):
+        signed_tx = _sign_tx_by_software_wallet(wallet, accounts, password, unsigned_tx)
+    elif data.WalletType.is_hardware_wallet(wallet_type):
+        signed_tx = _sign_tx_by_hardware_wallet(wallet, accounts, hardware_device_path, unsigned_tx)
+    else:
+        raise NotImplementedError("Should not be here")
 
     if auto_broadcast:
         receipt = broadcast_transaction(wallet.chain_code, signed_tx)
@@ -640,13 +679,13 @@ def send(
 
     transaction_manager.create_action(
         txid=signed_tx.txid,
-        status=TxActionStatus.PENDING if auto_broadcast else TxActionStatus.SIGNED,
+        status=transaction_data.TxActionStatus.PENDING if auto_broadcast else transaction_data.TxActionStatus.SIGNED,
         chain_code=chain_info.chain_code,
         coin_code=coin_code,
-        value=Decimal(value),
+        value=decimal.Decimal(value),
         from_address=accounts[0].address,
         to_address=to_address,
-        fee_limit=Decimal(unsigned_tx.fee_limit),
+        fee_limit=decimal.Decimal(unsigned_tx.fee_limit),
         fee_price_per_unit=unsigned_tx.fee_price_per_unit,
         nonce=-1 if unsigned_tx.nonce is None else unsigned_tx.nonce,
         raw_tx=signed_tx.raw_tx,
@@ -655,7 +694,7 @@ def send(
     return signed_tx
 
 
-def _verify_unsigned_tx(wallet_id: int, coin_code: str, unsigned_tx: UnsignedTx) -> Tuple[bool, str]:
+def _verify_unsigned_tx(wallet_id: int, coin_code: str, unsigned_tx: provider_data.UnsignedTx) -> Tuple[bool, str]:
     wallet = _get_wallet_by_id(wallet_id)
 
     input_addresses = [i.address for i in unsigned_tx.inputs or ()]
@@ -677,17 +716,38 @@ def _verify_unsigned_tx(wallet_id: int, coin_code: str, unsigned_tx: UnsignedTx)
     elif not all(provider_manager.verify_address(wallet.chain_code, i).is_valid for i in output_addresses):
         return False, "Invalid output address"
 
-    # todo more verification
+    # todo more verification, check whether main coin balance and token balance are enough
     return True, ""
 
 
-def _sign_tx(wallet: WalletModel, accounts: List[AccountModel], password: str, unsigned_tx: UnsignedTx) -> SignedTx:
+def _sign_tx_by_software_wallet(
+    wallet: models.WalletModel,
+    accounts: List[models.AccountModel],
+    password: str,
+    unsigned_tx: provider_data.UnsignedTx,
+) -> provider_data.SignedTx:
     key_mapping = {i.address: secret_manager.get_signer(password, i.pubkey_id) for i in accounts}
     signed_tx = provider_manager.sign_transaction(wallet.chain_code, unsigned_tx, key_mapping)
     return signed_tx
 
 
-def broadcast_transaction(chain_code: str, signed_tx: SignedTx) -> TxBroadcastReceipt:
+def _sign_tx_by_hardware_wallet(
+    wallet: models.WalletModel,
+    accounts: List[models.AccountModel],
+    hardware_device_path: str,
+    unsigned_tx: provider_data.UnsignedTx,
+) -> provider_data.SignedTx:
+    bip44_path_of_signers = {i.address: i.bip44_path for i in accounts}
+    signed_tx = provider_manager.hardware_sign_transaction(
+        wallet.chain_code,
+        hardware_device_path,
+        unsigned_tx,
+        bip44_path_of_signers,
+    )
+    return signed_tx
+
+
+def broadcast_transaction(chain_code: str, signed_tx: provider_data.SignedTx) -> provider_data.TxBroadcastReceipt:
     receipt = provider_manager.broadcast_transaction(chain_code, signed_tx.raw_tx)
     if receipt.txid:
         require(receipt.txid == signed_tx.txid, f"Txid mismatched. expected: {signed_tx.txid}, actual: {receipt.txid}")
@@ -695,7 +755,11 @@ def broadcast_transaction(chain_code: str, signed_tx: SignedTx) -> TxBroadcastRe
     txid = signed_tx.txid or receipt.txid
     if txid:
         transaction_manager.update_action_status(
-            chain_code, txid, TxActionStatus.PENDING if receipt.is_success else TxActionStatus.UNEXPECTED_FAILED
+            chain_code,
+            txid,
+            transaction_data.TxActionStatus.PENDING
+            if receipt.is_success
+            else transaction_data.TxActionStatus.UNEXPECTED_FAILED,
         )
 
     receipt.txid = txid
@@ -723,8 +787,8 @@ def hide_asset(wallet_id: int, coin_code: str):
 
 
 def refresh_assets(
-    assets: List[AssetModel], force_update: bool = False, cache_in_seconds: int = 10
-) -> List[AssetModel]:
+    assets: List[models.AssetModel], force_update: bool = False, cache_in_seconds: int = 10
+) -> List[models.AssetModel]:
     need_update_flag_datetime = datetime.datetime.now() - datetime.timedelta(seconds=cache_in_seconds)
     need_update_assets = assets if force_update else [i for i in assets if i.modified_time < need_update_flag_datetime]
 
@@ -738,14 +802,14 @@ def refresh_assets(
 
     updated_assets = []
     need_update_assets = sorted(need_update_assets, key=lambda i: (i.chain_code, i.account_id))
-    for chain_code, group in groupby(need_update_assets, key=lambda i: i.chain_code):
-        for account_id, sub_group in groupby(group, key=lambda i: i.account_id):
+    for chain_code, group in itertools.groupby(need_update_assets, key=lambda i: i.chain_code):
+        for account_id, sub_group in itertools.groupby(group, key=lambda i: i.account_id):
             for asset in sub_group:  # todo batch
                 try:
                     account = accounts_lookup[account_id]
                     coin = coins_lookup[asset.coin_code]
                     balance = provider_manager.get_balance(chain_code, account.address, coin.token_address)
-                    asset.balance = Decimal(balance)
+                    asset.balance = decimal.Decimal(balance)
                     updated_assets.append(asset)
                 except Exception as e:
                     logger.exception(
@@ -753,20 +817,20 @@ def refresh_assets(
                         f"account_id: {account_id}, error: {e}"
                     )
 
-    with db.atomic():
+    with orm_database.db.atomic():
         daos.asset.bulk_update_balance(updated_assets)
 
     return assets
 
 
 @functools.lru_cache
-def get_default_bip44_path(chain_code: str, address_encoding: str = None) -> BIP44Path:
+def get_default_bip44_path(chain_code: str, address_encoding: str = None) -> bip44.BIP44Path:
     chain_info = coin_manager.get_chain_info(chain_code)
     address_encoding = address_encoding or chain_info.default_address_encoding
     purpose = chain_info.bip44_purpose_options.get(address_encoding) or 44
-    bip44_last_hardened_level = BIP44Level[chain_info.bip44_last_hardened_level.upper()]
-    bip44_target_level = BIP44Level[chain_info.bip44_target_level.upper()]
-    bip44_path = BIP44Path(
+    bip44_last_hardened_level = chain_info.bip44_last_hardened_level
+    bip44_target_level = chain_info.bip44_target_level
+    bip44_path = bip44.BIP44Path(
         purpose=purpose,
         coin_type=chain_info.bip44_coin_type,
         account=0,
@@ -788,10 +852,10 @@ def get_encoded_address_by_account_id(account_id: int, address_encoding: str = N
     return provider_manager.pubkey_to_address(account.chain_code, verifier, encoding=address_encoding)
 
 
-@db.atomic()
+@orm_database.db.atomic()
 def cascade_delete_wallet_related_models(wallet_id: int, password: str = None):
     wallet = _get_wallet_by_id(wallet_id)
-    if wallet.type != WalletType.WATCHONLY:
+    if data.WalletType.is_software_wallet(wallet.type):
         check_wallet_password(wallet_id, password)
 
     chain_code = wallet.chain_code
@@ -812,12 +876,146 @@ def get_first_primary_wallet_id() -> int:
     return daos.wallet.get_first_primary_wallet().id
 
 
-@db.atomic()
+@orm_database.db.atomic()
 def clear_all_primary_wallets(password: str = None):
-    wallets = daos.wallet.list_all_wallets(wallet_type=WalletType.SOFTWARE_PRIMARY)
+    wallets = daos.wallet.list_all_wallets(wallet_type=data.WalletType.SOFTWARE_PRIMARY)
     for wallet in wallets:
         cascade_delete_wallet_related_models(wallet.id, password)
 
 
 def count_primary_wallet_by_chain(chain_code: str) -> int:
-    return len(daos.wallet.list_all_wallets(chain_code, wallet_type=WalletType.SOFTWARE_PRIMARY))
+    return len(daos.wallet.list_all_wallets(chain_code, wallet_type=data.WalletType.SOFTWARE_PRIMARY))
+
+
+def generate_next_bip44_path_for_primary_hardware_wallet(
+    chain_code: str,
+    hardware_device_path: str,
+    address_encoding: str = None,
+    hardware_key_id: str = None,
+) -> bip44.BIP44Path:
+    chain_info = coin_manager.get_chain_info(chain_code)
+    address_encoding = address_encoding or chain_info.default_address_encoding
+    hardware_key_id = hardware_key_id or hardware_manager.get_key_id(hardware_device_path)
+    existing_wallets = daos.wallet.list_all_wallets(
+        chain_code, data.WalletType.HARDWARE_PRIMARY, hardware_key_id=hardware_key_id
+    )
+    return _generate_next_bip44_path(chain_info, address_encoding, existing_wallets)
+
+
+def create_next_primary_hardware_wallet(
+    name: str,
+    chain_code: str,
+    hardware_device_path: str,
+    address_encoding: str = None,
+) -> dict:
+    chain_info = coin_manager.get_chain_info(chain_code)
+    address_encoding = address_encoding or chain_info.default_address_encoding
+    hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
+    bip44_path = generate_next_bip44_path_for_primary_hardware_wallet(
+        chain_code, hardware_device_path, address_encoding, hardware_key_id
+    ).to_bip44_path()
+    return _create_hardware_wallet(
+        name,
+        chain_code,
+        hardware_device_path,
+        data.WalletType.HARDWARE_PRIMARY,
+        hardware_key_id,
+        bip44_path,
+        address_encoding,
+    )
+
+
+def create_standalone_hardware_wallet(
+    name: str,
+    chain_code: str,
+    hardware_device_path: str,
+    bip44_path: str,
+    address_encoding: str = None,
+) -> dict:
+    hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
+    return _create_hardware_wallet(
+        name,
+        chain_code,
+        hardware_device_path,
+        data.WalletType.HARDWARE_STANDALONE,
+        hardware_key_id,
+        bip44_path=bip44_path,
+        address_encoding=address_encoding,
+    )
+
+
+def _create_hardware_wallet(
+    name: str,
+    chain_code: str,
+    hardware_device_path: str,
+    wallet_type: data.WalletType,
+    hardware_key_id: str,
+    bip44_path: str,
+    address_encoding: str = None,
+) -> dict:
+    require(data.WalletType.is_hardware_wallet(wallet_type))
+
+    chain_info = coin_manager.get_chain_info(chain_code)
+    address_encoding = address_encoding or chain_info.default_address_encoding
+    xpub = provider_manager.hardware_get_xpub(chain_code, hardware_device_path, bip44_path)
+    verifier = secret_manager.raw_create_verifier_by_xpub(chain_info.curve, xpub)
+    address = provider_manager.pubkey_to_address(chain_code, verifier, encoding=address_encoding)
+
+    with orm_database.db.atomic():
+        pubkey_model = secret_manager.import_xpub(chain_info.curve, xpub, path=bip44_path)
+        wallet_info = _create_default_wallet(
+            chain_code,
+            name,
+            wallet_type,
+            address,
+            address_encoding=address_encoding,
+            pubkey_id=pubkey_model.id,
+            bip44_path=bip44_path,
+            hardware_key_id=hardware_key_id,
+        )
+
+    return wallet_info
+
+
+def sign_message(
+    wallet_id: int,
+    message: str,
+    password: str = None,
+    hardware_device_path: str = None,
+) -> str:
+    wallet = _get_wallet_by_id(wallet_id)
+    account = get_default_account_by_wallet(wallet_id)
+    wallet_type = wallet.type
+
+    if data.WalletType.is_watchonly_wallet(wallet_type):
+        raise exceptions.IllegalWalletOperation("Watchonly wallet can not sign message")
+    elif data.WalletType.is_software_wallet(wallet_type):
+        require(password, exceptions.IllegalWalletOperation("Require password"))
+        raise NotImplementedError("Software wallets don't support sign message now")
+    elif data.WalletType.is_hardware_wallet(wallet_type):
+        require(hardware_device_path, exceptions.IllegalWalletOperation("Require hardware_device_path"))
+        hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
+        require(hardware_key_id == wallet.hardware_key_id, exceptions.IllegalWalletOperation("Device mismatch"))
+        return provider_manager.hardware_sign_message(
+            wallet.chain_code, hardware_device_path, account.bip44_path, message
+        )
+    else:
+        raise ValueError(f"Illegal wallet_type: {wallet_type}")
+
+
+def verify_message(
+    chain_code: str, address: str, message: str, signature: str, hardware_device_path: str = None
+) -> bool:
+    if hardware_device_path:
+        return provider_manager.hardware_verify_message(chain_code, hardware_device_path, address, message, signature)
+    else:
+        raise NotImplementedError("Software wallets don't support verify message now")
+
+
+def confirm_address_on_hardware(wallet_id: int, hardware_device_path: str) -> str:
+    wallet = _get_wallet_by_id(wallet_id)
+    require(data.WalletType.is_hardware_wallet(wallet.type))
+    account = get_default_account_by_wallet(wallet_id)
+    return provider_manager.hardware_get_address(
+        wallet.chain_code, hardware_device_path, account.bip44_path, confirm_on_device=True
+    )

@@ -9,22 +9,28 @@ def create_wallet(
     name: str,
     wallet_type: WalletType,
     chain_code: str,
+    hardware_key_id: str = None,
 ) -> WalletModel:
     return WalletModel.create(
         name=name,
         type=wallet_type,
         chain_code=chain_code,
+        hardware_key_id=hardware_key_id,
     )
 
 
-def list_all_wallets(chain_code: str = None, wallet_type: WalletType = None) -> List[WalletModel]:
+def list_all_wallets(
+    chain_code: str = None, wallet_type: WalletType = None, hardware_key_id: str = None
+) -> List[WalletModel]:
+    expressions = []
+
+    chain_code is None or expressions.append(WalletModel.chain_code == chain_code)
+    wallet_type is None or expressions.append(WalletModel.type == wallet_type)
+    hardware_key_id is None or expressions.append(WalletModel.hardware_key_id == hardware_key_id)
+
     models = WalletModel.select()
-
-    if chain_code is not None:
-        models = models.where(WalletModel.chain_code == chain_code)
-
-    if wallet_type is not None:
-        models = models.where(WalletModel.type == wallet_type)
+    if expressions:
+        models = models.where(*expressions)
 
     return list(models)
 

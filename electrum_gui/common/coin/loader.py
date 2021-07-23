@@ -1,23 +1,44 @@
+import enum
 import json
 import os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Type
 
-from electrum_gui.common.coin.data import ChainInfo, ChainModel, CoinInfo
+from electrum_gui.common.basic import bip44
+from electrum_gui.common.coin import data as coins_data
 from electrum_gui.common.conf import settings
-from electrum_gui.common.secret.data import CurveEnum
+from electrum_gui.common.secret import data as secret_data
 
 
-def _load_config(json_name: str) -> Tuple[Dict[str, ChainInfo], Dict[str, CoinInfo]]:
+def _replace_enum_fields(raw_data: dict, fields: Dict[str, Type[enum.Enum]]):
+    for field_name, enum_cls in fields.items():
+        if field_name not in raw_data:
+            continue
+
+        enum_name = raw_data[field_name].upper()
+        enum_ins = enum_cls[enum_name]
+        raw_data[field_name] = enum_ins
+
+
+def _load_config(json_name: str) -> Tuple[Dict[str, coins_data.ChainInfo], Dict[str, coins_data.CoinInfo]]:
     configs: List[dict] = json.loads(open(json_name).read())
     chains, coins = {}, {}
 
     for chain_config in configs:
         coins_config = chain_config.pop("coins")
-        chain_config["chain_model"] = ChainModel[chain_config["chain_model"].upper()]
-        chain_config["curve"] = CurveEnum[chain_config["curve"].upper()]
-        chain_info = ChainInfo(**chain_config)
+        _replace_enum_fields(
+            chain_config,
+            {
+                "chain_model": coins_data.ChainModel,
+                "curve": secret_data.CurveEnum,
+                "bip44_last_hardened_level": bip44.BIP44Level,
+                "bip44_auto_increment_level": bip44.BIP44Level,
+                "bip44_target_level": bip44.BIP44Level,
+            },
+        )
+
+        chain_info = coins_data.ChainInfo(**chain_config)
         chains[chain_info.chain_code] = chain_info
-        coins.update({i["code"]: CoinInfo(chain_code=chain_info.chain_code, **i) for i in coins_config})
+        coins.update({i["code"]: coins_data.CoinInfo(chain_code=chain_info.chain_code, **i) for i in coins_config})
 
     return chains, coins
 

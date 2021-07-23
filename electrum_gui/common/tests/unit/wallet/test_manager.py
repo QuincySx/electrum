@@ -10,6 +10,7 @@ from electrum_gui.common.provider import data as provider_data
 from electrum_gui.common.secret import exceptions as secret_exceptions
 from electrum_gui.common.secret import models as secret_models
 from electrum_gui.common.transaction import data as transaction_data
+from electrum_gui.common.transaction import manager as transaction_manager
 from electrum_gui.common.transaction import models as transaction_models
 from electrum_gui.common.wallet import daos as wallet_daos
 from electrum_gui.common.wallet import data as wallet_data
@@ -470,7 +471,7 @@ class TestWalletManager(TestCase):
     @patch("electrum_gui.common.wallet.manager.provider_manager")
     @patch("electrum_gui.common.wallet.manager.secret_manager")
     @patch("electrum_gui.common.wallet.manager.transaction_manager")
-    def test_send(
+    def test_send__software(
         self,
         fake_transaction_manager,
         fake_secret_manager,
@@ -485,11 +486,15 @@ class TestWalletManager(TestCase):
             ):
                 wallet_manager.send(wallet.id, "eth_usdt", "fake_display_address", 10, "123")
 
-        with self.subTest("Send asset"):
-            wallet = wallet_daos.wallet.create_wallet("testing", wallet_data.WalletType.SOFTWARE_PRIMARY, "eth")
-            account = wallet_daos.account.create_account(wallet.id, "eth", "my_address", pubkey_id=111)
-            wallet_daos.asset.create_asset(wallet.id, account.id, "eth", "eth_usdt")
+        wallet = wallet_daos.wallet.create_wallet("testing", wallet_data.WalletType.SOFTWARE_PRIMARY, "eth")
+        account = wallet_daos.account.create_account(wallet.id, "eth", "my_address", pubkey_id=111)
+        wallet_daos.asset.create_asset(wallet.id, account.id, "eth", "eth_usdt")
 
+        with self.subTest("Require password"):
+            with self.assertRaisesRegex(wallet_exceptions.IllegalWalletOperation, "Require password"):
+                wallet_manager.send(wallet.id, "eth_usdt", "fake_display_address", 10)
+
+        with self.subTest("Send asset"):
             fake_handler = Mock()
             fake_unsigned_tx = provider_data.UnsignedTx(
                 inputs=[provider_data.TransactionInput(address="my_address", value=10)],
@@ -755,17 +760,330 @@ class TestWalletManager(TestCase):
             password=self.password,
             bip44_path="m/44'/60'/0'/0/0",
         )
+        transaction_manager.create_action(
+            txid="fake_id",
+            status=transaction_data.TxActionStatus.CONFIRM_SUCCESS,
+            chain_code="eth",
+            coin_code="eth",
+            value=decimal.Decimal(1),
+            from_address=wallet_info["address"],
+            to_address="0x0001",
+            fee_limit=decimal.Decimal(1),
+            fee_price_per_unit=decimal.Decimal(1),
+            nonce=0,
+            raw_tx="",
+        )
 
-        self.assertEqual(1, len(secret_models.SecretKeyModel.select()))
-        self.assertEqual(1, len(secret_models.PubKeyModel.select()))
-        self.assertEqual(1, len(wallet_models.WalletModel.select()))
-        self.assertEqual(1, len(wallet_models.AccountModel.select()))
-        self.assertEqual(1, len(wallet_models.AssetModel.select()))
+        self.assertEqual(1, secret_models.SecretKeyModel.select().count())
+        self.assertEqual(1, secret_models.PubKeyModel.select().count())
+        self.assertEqual(1, wallet_models.WalletModel.select().count())
+        self.assertEqual(1, wallet_models.AccountModel.select().count())
+        self.assertEqual(1, wallet_models.AssetModel.select().count())
+        self.assertEqual(1, transaction_models.TxAction.select().count())
 
         wallet_manager.cascade_delete_wallet_related_models(wallet_info["wallet_id"], self.password)
 
-        self.assertEqual(0, len(secret_models.SecretKeyModel.select()))
-        self.assertEqual(0, len(secret_models.PubKeyModel.select()))
-        self.assertEqual(0, len(wallet_models.WalletModel.select()))
-        self.assertEqual(0, len(wallet_models.AccountModel.select()))
-        self.assertEqual(0, len(wallet_models.AssetModel.select()))
+        self.assertEqual(0, secret_models.SecretKeyModel.select().count())
+        self.assertEqual(0, secret_models.PubKeyModel.select().count())
+        self.assertEqual(0, wallet_models.WalletModel.select().count())
+        self.assertEqual(0, wallet_models.AccountModel.select().count())
+        self.assertEqual(0, wallet_models.AssetModel.select().count())
+        self.assertEqual(0, transaction_models.TxAction.select().count())
+
+    @patch("electrum_gui.common.wallet.manager.get_handler_by_chain_model")
+    @patch("electrum_gui.common.wallet.manager.coin_manager")
+    @patch("electrum_gui.common.wallet.manager.provider_manager")
+    @patch("electrum_gui.common.wallet.manager.transaction_manager")
+    @patch("electrum_gui.common.wallet.manager.hardware_manager")
+    def test_send__hardware(
+        self,
+        fake_hardware_manager,
+        fake_transaction_manager,
+        fake_provider_manager,
+        fake_coin_manager,
+        fake_get_handler_by_chain_model,
+    ):
+        hardware_key_id = "fake_hardware_key_id"
+        hardware_device_path = "fake_device_path"
+
+        wallet = wallet_daos.wallet.create_wallet(
+            "testing",
+            wallet_data.WalletType.HARDWARE_PRIMARY,
+            "eth",
+            hardware_key_id=hardware_key_id,
+        )
+        account = wallet_daos.account.create_account(wallet.id, "eth", "my_address", bip44_path="m/44'/60'/0'/0/1024")
+        wallet_daos.asset.create_asset(wallet.id, account.id, "eth", "eth_usdt")
+
+        with self.subTest("Require hardware_key_id"):
+            with self.assertRaisesRegex(wallet_exceptions.IllegalWalletOperation, "Require hardware_device_path"):
+                wallet_manager.send(wallet.id, "eth_usdt", "fake_display_address", 10)
+
+        with self.subTest("Device mismatch"):
+            fake_hardware_manager.get_key_id.return_value = "other_hardware_key_id"
+            with self.assertRaisesRegex(wallet_exceptions.IllegalWalletOperation, "Device mismatch"):
+                wallet_manager.send(
+                    wallet.id, "eth_usdt", "fake_display_address", 10, hardware_device_path=hardware_device_path
+                )
+
+            fake_hardware_manager.get_key_id.assert_called_once_with(hardware_device_path)
+            fake_hardware_manager.get_key_id.reset_mock()
+
+        with self.subTest("Send asset"):
+            fake_hardware_manager.get_key_id.return_value = hardware_key_id
+
+            fake_handler = Mock()
+            fake_unsigned_tx = provider_data.UnsignedTx(
+                inputs=[provider_data.TransactionInput(address="my_address", value=10)],
+                outputs=[provider_data.TransactionOutput(address="fake_normal_address", value=10)],
+                nonce=3,
+                fee_limit=101,
+                fee_price_per_unit=11,
+            )
+            fake_handler.generate_unsigned_tx.return_value = fake_unsigned_tx
+            fake_get_handler_by_chain_model.return_value = fake_handler
+
+            fake_coin_manager.get_coin_info.return_value = Mock(chain_code="eth")
+            fake_coin_manager.get_chain_info.return_value = Mock(
+                chain_code="eth", chain_model=coin_data.ChainModel.ACCOUNT
+            )
+
+            fake_provider_manager.verify_address.return_value = provider_data.AddressValidation(
+                normalized_address="fake_normal_address", display_address="fake_display_address", is_valid=True
+            )
+            fake_provider_manager.hardware_sign_transaction.return_value = provider_data.SignedTx(
+                txid="fake_txid", raw_tx="fake_raw_tx"
+            )
+            fake_provider_manager.broadcast_transaction.return_value = provider_data.TxBroadcastReceipt(
+                txid="fake_txid", is_success=True, receipt_code=provider_data.TxBroadcastReceiptCode.SUCCESS
+            )
+
+            self.assertEqual(
+                provider_data.SignedTx(txid="fake_txid", raw_tx="fake_raw_tx"),
+                wallet_manager.send(
+                    wallet.id, "eth_usdt", "fake_display_address", 10, hardware_device_path=hardware_device_path
+                ),
+            )
+
+            fake_coin_manager.get_coin_info.assert_called_once_with("eth_usdt")
+            fake_coin_manager.get_chain_info.assert_called_once_with("eth")
+            fake_get_handler_by_chain_model.assert_called_once_with(coin_data.ChainModel.ACCOUNT)
+            fake_provider_manager.verify_address.assert_has_calls(
+                [call("eth", "fake_display_address"), call("eth", "fake_normal_address")]
+            )
+            fake_handler.generate_unsigned_tx.assert_called_once_with(
+                wallet.id, "eth_usdt", "fake_normal_address", 10, None, None, None, None
+            )
+            fake_provider_manager.hardware_sign_transaction.assert_called_once_with(
+                "eth",
+                hardware_device_path,
+                fake_unsigned_tx,
+                {"my_address": "m/44'/60'/0'/0/1024"},
+            )
+            fake_provider_manager.broadcast_transaction.assert_called_once_with("eth", "fake_raw_tx")
+            fake_transaction_manager.update_action_status.assert_called_once_with(
+                "eth", "fake_txid", transaction_data.TxActionStatus.PENDING
+            )
+            fake_transaction_manager.create_action.assert_called_once_with(
+                txid="fake_txid",
+                status=transaction_data.TxActionStatus.PENDING,
+                chain_code="eth",
+                coin_code="eth_usdt",
+                value=decimal.Decimal(10),
+                from_address="my_address",
+                to_address="fake_normal_address",
+                fee_limit=decimal.Decimal(101),
+                fee_price_per_unit=decimal.Decimal(11),
+                nonce=3,
+                raw_tx="fake_raw_tx",
+            )
+
+    @patch("electrum_gui.common.wallet.manager.hardware_manager")
+    def test_generate_next_bip44_path_for_primary_hardware_wallet(self, fake_hardware_manager):
+        hardware_device_path = "fake_hardware_device_path"
+        hardware_key_id = "fake_hardware_key_id"
+        fake_hardware_manager.get_key_id.return_value = hardware_key_id
+
+        with self.subTest("no hardware wallet yet"):
+            self.assertEqual(
+                "m/44'/60'/0'/0/0",
+                wallet_manager.generate_next_bip44_path_for_primary_hardware_wallet(
+                    "eth", hardware_device_path
+                ).to_bip44_path(),
+            )
+            fake_hardware_manager.get_key_id.assert_called_once_with(hardware_device_path)
+
+        with self.subTest("auto increase next bip44 path"):
+            wallet = wallet_daos.wallet.create_wallet(
+                "testing",
+                wallet_data.WalletType.HARDWARE_PRIMARY,
+                "eth",
+                hardware_key_id=hardware_key_id,
+            )
+            wallet_daos.account.create_account(wallet.id, "eth", "my_address", bip44_path="m/44'/60'/0'/0/0")
+            self.assertEqual(
+                "m/44'/60'/0'/0/1",
+                wallet_manager.generate_next_bip44_path_for_primary_hardware_wallet(
+                    "eth", hardware_device_path
+                ).to_bip44_path(),
+            )
+
+        with self.subTest("different hardware_key_id different branch"):
+            fake_hardware_manager.get_key_id.return_value = "other_hardware_key_id"
+            self.assertEqual(
+                "m/44'/60'/0'/0/0",
+                wallet_manager.generate_next_bip44_path_for_primary_hardware_wallet(
+                    "eth", hardware_device_path
+                ).to_bip44_path(),
+            )
+
+    @patch("electrum_gui.common.wallet.manager.provider_manager.hardware_get_xpub")
+    @patch("electrum_gui.common.wallet.manager.hardware_manager")
+    def test_create_next_primary_hardware_wallet(self, fake_hardware_manager, fake_hardware_get_xpub):
+        hardware_device_path = "fake_hardware_device_path"
+        hardware_key_id = "fake_hardware_key_id"
+        fake_hardware_manager.get_key_id.return_value = hardware_key_id
+
+        self.assertEqual(0, wallet_models.WalletModel.select().count())
+        self.assertEqual(0, secret_models.PubKeyModel.select().count())
+
+        with self.subTest("the first wallet"):
+            fake_hardware_get_xpub.return_value = "xpub6GdekQL5Q9Fs4bcPdEs8L8gwz9paLoVQ4gXxAzGX8b4uuC4NpmxZQofSXpWDuFRhHiphExDLEGrxdDP8jPJfz8yBV2dhvzaGfRBvdA6FPFF"
+            self.assertEqual(
+                {
+                    'address': '0x8be73940864fd2b15001536e76b3eccd85a80a5d',
+                    'address_encoding': None,
+                    'assets': [
+                        {
+                            'balance': 0,
+                            'coin_code': 'eth',
+                            'decimals': 18,
+                            'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                            'is_visible': True,
+                            'symbol': 'ETH',
+                            'token_address': None,
+                        }
+                    ],
+                    'bip44_path': "m/44'/60'/0'/0/0",
+                    'chain_code': 'eth',
+                    'name': 'hw_1',
+                    'wallet_id': 1,
+                    'wallet_type': 'HARDWARE_PRIMARY',
+                },
+                wallet_manager.create_next_primary_hardware_wallet("hw_1", "eth", hardware_device_path),
+            )
+            self.assertEqual(1, wallet_models.WalletModel.select().count())
+            self.assertEqual(1, secret_models.PubKeyModel.select().count())
+            fake_hardware_manager.get_key_id.assert_called_once_with(hardware_device_path)
+            fake_hardware_get_xpub.assert_called_once_with("eth", hardware_device_path, "m/44'/60'/0'/0/0")
+
+        with self.subTest("the second wallet"):
+            fake_hardware_get_xpub.return_value = "xpub6GdekQL5Q9Fs6eZYGrYCYy1ewvg1cQV2wDTpMvFCcgFFuKREY1tqsvRYrudxVLdHdJveLEEV4w3bneUoxJsxzURjkMm2nQBUnmZeXyRKwDr"
+            self.assertEqual(
+                {
+                    'address': '0xd927952eed3a0a838bbe2db0ba5a15673003903d',
+                    'address_encoding': None,
+                    'assets': [
+                        {
+                            'balance': 0,
+                            'coin_code': 'eth',
+                            'decimals': 18,
+                            'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                            'is_visible': True,
+                            'symbol': 'ETH',
+                            'token_address': None,
+                        }
+                    ],
+                    'bip44_path': "m/44'/60'/0'/0/1",
+                    'chain_code': 'eth',
+                    'name': 'hw_2',
+                    'wallet_id': 2,
+                    'wallet_type': 'HARDWARE_PRIMARY',
+                },
+                wallet_manager.create_next_primary_hardware_wallet("hw_2", "eth", hardware_device_path),
+            )
+            self.assertEqual(2, wallet_models.WalletModel.select().count())
+            self.assertEqual(2, secret_models.PubKeyModel.select().count())
+
+    @patch("electrum_gui.common.wallet.manager.provider_manager.hardware_get_xpub")
+    @patch("electrum_gui.common.wallet.manager.hardware_manager")
+    def test_create_standalone_hardware_wallet(self, fake_hardware_manager, fake_hardware_get_xpub):
+        hardware_device_path = "fake_hardware_device_path"
+        hardware_key_id = "fake_hardware_key_id"
+        fake_hardware_manager.get_key_id.return_value = hardware_key_id
+
+        fake_hardware_get_xpub.return_value = "xpub6GdekQL5Q9Fs6eZYGrYCYy1ewvg1cQV2wDTpMvFCcgFFuKREY1tqsvRYrudxVLdHdJveLEEV4w3bneUoxJsxzURjkMm2nQBUnmZeXyRKwDr"
+        self.assertEqual(
+            {
+                'address': '0xd927952eed3a0a838bbe2db0ba5a15673003903d',
+                'address_encoding': None,
+                'assets': [
+                    {
+                        'balance': 0,
+                        'coin_code': 'eth',
+                        'decimals': 18,
+                        'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                        'is_visible': True,
+                        'symbol': 'ETH',
+                        'token_address': None,
+                    }
+                ],
+                'bip44_path': "m/44'/60'/0'/0/1",
+                'chain_code': 'eth',
+                'name': 'hw_1',
+                'wallet_id': 1,
+                'wallet_type': 'HARDWARE_STANDALONE',
+            },
+            wallet_manager.create_standalone_hardware_wallet("hw_1", "eth", hardware_device_path, "m/44'/60'/0'/0/1"),
+        )
+        fake_hardware_get_xpub.assert_called_once_with("eth", hardware_device_path, "m/44'/60'/0'/0/1")
+
+    @patch("electrum_gui.common.wallet.manager.provider_manager")
+    @patch("electrum_gui.common.wallet.manager.hardware_manager")
+    def test_sign_message__hardware(self, fake_hardware_manager, fake_provider_manager):
+        hardware_key_id = "fake_hardware_key_id"
+        hardware_device_path = "fake_device_path"
+
+        wallet = wallet_daos.wallet.create_wallet(
+            "testing",
+            wallet_data.WalletType.HARDWARE_PRIMARY,
+            "eth",
+            hardware_key_id=hardware_key_id,
+        )
+        account = wallet_daos.account.create_account(wallet.id, "eth", "my_address", bip44_path="m/44'/60'/0'/0/1024")
+        wallet_daos.asset.create_asset(wallet.id, account.id, "eth", "eth_usdt")
+
+        with self.subTest("Require hardware_key_id"):
+            with self.assertRaisesRegex(wallet_exceptions.IllegalWalletOperation, "Require hardware_device_path"):
+                wallet_manager.sign_message(wallet.id, "Hello OneKey")
+
+        with self.subTest("Device mismatch"):
+            fake_hardware_manager.get_key_id.return_value = "other_hardware_key_id"
+            with self.assertRaisesRegex(wallet_exceptions.IllegalWalletOperation, "Device mismatch"):
+                wallet_manager.sign_message(wallet.id, "Hello OneKey", hardware_device_path=hardware_device_path)
+
+            fake_hardware_manager.get_key_id.assert_called_once_with(hardware_device_path)
+            fake_hardware_manager.get_key_id.reset_mock()
+
+        with self.subTest("Sign message"):
+            fake_hardware_manager.get_key_id.return_value = hardware_key_id
+            fake_provider_manager.hardware_sign_message.return_value = "fake_signature"
+            self.assertEqual(
+                "fake_signature",
+                wallet_manager.sign_message(wallet.id, "Hello OneKey", hardware_device_path=hardware_device_path),
+            )
+            fake_provider_manager.hardware_sign_message.assert_called_once_with(
+                "eth", hardware_device_path, "m/44'/60'/0'/0/1024", "Hello OneKey"
+            )
+
+    @patch("electrum_gui.common.wallet.manager.provider_manager")
+    def test_verify_message__hardware(self, fake_provider_manager):
+        fake_provider_manager.hardware_verify_message.return_value = True
+
+        self.assertEqual(
+            True,
+            wallet_manager.verify_message("eth", "fake_address", "Hello OneKey", "fake_signature", "fake_device_path"),
+        )
+        fake_provider_manager.hardware_verify_message.assert_called_once_with(
+            "eth", "fake_device_path", "fake_address", "Hello OneKey", "fake_signature"
+        )

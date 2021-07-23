@@ -2,8 +2,9 @@ from dataclasses import dataclass, field
 from enum import IntEnum, unique
 from typing import Dict, List, Optional
 
+from electrum_gui.common.basic import bip44
 from electrum_gui.common.basic.dataclass.dataclass import DataClassMixin
-from electrum_gui.common.secret.data import CurveEnum
+from electrum_gui.common.secret import data as secret_data
 
 
 @unique
@@ -18,17 +19,19 @@ class ChainInfo(DataClassMixin):
     fee_code: str  # which coin is used to provide fee (omni chain uses btc, neo uses neo_gas etc.)
     name: str  # full name of chain
     chain_model: ChainModel  # model of chain (UTXO, Account etc.)
-    curve: CurveEnum  # curve type
+    curve: secret_data.CurveEnum  # curve type
     chain_affinity: str  # mark chain affinity
     qr_code_prefix: str  # QR code prefix of address
     bip44_coin_type: int  # coin_type of bip44 path
-    bip44_target_level: str = (
-        "ADDRESS_INDEX"  # Derive to 'ADDRESS_INDEX' as default (options: ACCOUNT, CHANGE, ADDRESS_INDEX)
-    )
-    bip44_auto_increment_level: str = "ADDRESS_INDEX"  # Auto increase 'ADDRESS_INDEX' level to derive new address (options: ACCOUNT, CHANGE, ADDRESS_INDEX)
-    bip44_last_hardened_level: str = (
-        "ACCOUNT"  # hardened to 'ACCOUNT' level as default, but hardened to 'ADDRESS_INDEX' level in ED25519 curve
-    )
+    bip44_last_hardened_level: bip44.BIP44Level = (
+        bip44.BIP44Level.ACCOUNT
+    )  # hardened to 'ACCOUNT' level as default, but hardened to 'ADDRESS_INDEX' level in ED25519 curve
+    bip44_auto_increment_level: bip44.BIP44Level = (
+        bip44.BIP44Level.ADDRESS_INDEX
+    )  # Auto increase 'ADDRESS_INDEX' level to derive new address (options: ACCOUNT, CHANGE, ADDRESS_INDEX)
+    bip44_target_level: bip44.BIP44Level = (
+        bip44.BIP44Level.ADDRESS_INDEX
+    )  # Derive to 'ADDRESS_INDEX' as default (options: ACCOUNT, CHANGE, ADDRESS_INDEX)
     default_address_encoding: Optional[str] = None
     clients: List[dict] = field(default_factory=list)  # config of clients
     dexes: Dict[str, dict] = field(default_factory=dict)  # config of decentralized exchanges
