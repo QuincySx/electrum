@@ -278,7 +278,7 @@ class AndroidCommands(commands.Commands):
         the_begging.initialize()
 
         self.trezor_manager = hardware.TrezorManager(self.plugin)
-
+        self._delete_incorrect_temp_data()
         self._load_all_wallet()
 
     def __getattr__(self, name):
@@ -286,6 +286,11 @@ class AndroidCommands(commands.Commands):
             return getattr(self.trezor_manager, name)
 
         raise AttributeError
+
+    def _delete_incorrect_temp_data(self):
+        for info in self.wallet_context.stored_wallets:
+            if ".tmp" in info:
+                os.remove(self._wallet_path(name=info))
 
     # not needed in the future
     def set_language(self, language):
