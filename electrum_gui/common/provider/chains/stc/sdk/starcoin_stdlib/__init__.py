@@ -30,6 +30,16 @@ class ScriptFunctionCall__AcceptToken(ScriptFunctionCall):
 
 
 @dataclass(frozen=True)
+class ScriptFunctionCall__PeerToPeer(ScriptFunctionCall):
+    """."""
+
+    token_type: starcoin_types.TypeTag
+    payee: starcoin_types.AccountAddress
+    payee_auth_key: bytes
+    amount: st.uint128
+
+
+@dataclass(frozen=True)
 class ScriptFunctionCall__PeerToPeerV2(ScriptFunctionCall):
     """."""
 
@@ -86,6 +96,17 @@ def decode_accept_token_script_function(script: TransactionPayload) -> ScriptFun
     )
 
 
+def decode_peer_to_peer_script_function(script: TransactionPayload) -> ScriptFunctionCall:
+    if not isinstance(script, ScriptFunction):
+        raise ValueError("Unexpected transaction payload")
+    return ScriptFunctionCall__PeerToPeer(
+        token_type=script.ty_args[0],
+        payee=bcs.deserialize(script.args[0], starcoin_types.AccountAddress),
+        payee_auth_key=bcs.deserialize(script.args[1], bytes),
+        amount=bcs.deserialize(script.args[2], st.uint128),
+    )
+
+
 def decode_peer_to_peer_v2_script_function(script: TransactionPayload) -> ScriptFunctionCall:
     if not isinstance(script, ScriptFunction):
         raise ValueError("Unexpected transaction payload")
@@ -98,5 +119,6 @@ def decode_peer_to_peer_v2_script_function(script: TransactionPayload) -> Script
 
 SCRIPT_FUNCTION_DECODER_MAP: typing.Dict[str, typing.Callable[[TransactionPayload], ScriptFunctionCall]] = {
     "Accountaccept_token": decode_accept_token_script_function,
+    "TransferScriptspeer_to_peer": decode_peer_to_peer_script_function,
     "TransferScriptspeer_to_peer_v2": decode_peer_to_peer_v2_script_function,
 }
