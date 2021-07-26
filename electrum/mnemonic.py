@@ -31,8 +31,6 @@ import string
 from typing import Sequence, Dict
 from types import MappingProxyType
 
-from idna import unicode
-
 from .util import resource_path, bfh, bh2u, randrange
 from .crypto import hmac_oneshot
 from . import version
