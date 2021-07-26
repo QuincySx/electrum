@@ -110,6 +110,7 @@ class TrezorManager(object):
 
     # === Begin helper methods used in console.AndroidCommands ===
 
+    @api.api_entry()
     def ensure_client(self, path: str) -> None:
         self._get_client(path)
 
@@ -129,6 +130,7 @@ class TrezorManager(object):
 
     # Below are exposed methods, would be directly called from the upper users.
 
+    @api.api_entry()
     def hardware_verify(self, msg: str, path: str = "android_usb") -> str:
         """
         Anti-counterfeiting verification, used by hardware
@@ -155,6 +157,7 @@ class TrezorManager(object):
         else:
             return res.text
 
+    @api.api_entry()
     def backup_wallet(self, path: str = "android_usb") -> str:
         """
         Backup wallet by se
@@ -175,6 +178,7 @@ class TrezorManager(object):
         """
         return self._bridge(path, 'bixin_backup_device')
 
+    @api.api_entry()
     def bixin_load_device(
         self,
         path: str = "android_usb",
@@ -192,6 +196,7 @@ class TrezorManager(object):
         """
         return self._bridge(path, 'bixin_load_device', mnemonics=mnemonics, language=language, label=label)
 
+    @api.api_entry()
     def recovery_wallet_hw(self, path: str = "android_usb", *args) -> str:
         """
         Recovery wallet by encryption
@@ -201,6 +206,7 @@ class TrezorManager(object):
         """
         return self._bridge(path, 'recovery', *args)
 
+    @api.api_entry()
     def bx_inquire_whitelist(self, path: str = "android_usb", **kwargs) -> str:
         """
         Inquire
@@ -212,6 +218,7 @@ class TrezorManager(object):
         """
         return self._json_bridge(path, 'bx_inquire_whitelist', **kwargs)
 
+    @api.api_entry()
     def bx_add_or_delete_whitelist(self, path: str = "android_usb", **kwargs) -> str:
         """
         Add and delete whitelist
@@ -223,6 +230,7 @@ class TrezorManager(object):
         """
         return self._json_bridge(path, 'bx_add_or_delete_whitelist', **kwargs)
 
+    @api.api_entry()
     def apply_setting(self, path: str = "nfc", **kwargs) -> int:
         """
         Set the hardware function, used by hardware
@@ -240,6 +248,7 @@ class TrezorManager(object):
         resp = self._bridge(path, 'apply_settings', **kwargs)
         return 1 if resp == "Settings applied" else 0
 
+    @api.api_entry()
     def init(
         self,
         path: str = "android_usb",
@@ -263,6 +272,7 @@ class TrezorManager(object):
         response = self._bridge(path, 'reset_device', language=language, label=label, strength=strength)
         return 1 if response == "Device successfully initialized" else 0
 
+    @api.api_entry()
     def reset_pin(self, path: str = "android_usb") -> int:
         """
         Reset pin, used by hardware
@@ -281,6 +291,7 @@ class TrezorManager(object):
 
         return 1
 
+    @api.api_entry()
     def wipe_device(self, path: str = "android_usb") -> int:
         """
         Reset device, used by hardware
@@ -303,6 +314,7 @@ class TrezorManager(object):
         client = self._get_client(path=path)
         return client.features.passphrase_protection
 
+    @api.api_entry()
     def get_feature(self, path: str = "android_usb") -> str:
         """
         Get hardware information, used by hardware
