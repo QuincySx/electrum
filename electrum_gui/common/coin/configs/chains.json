@@ -134,7 +134,7 @@
     ],
     "dexes": {
         "ImplUniswapCompatible": {
-            "router_address": "0x05ff2b0db69458a0750badebc4f9e13add608c7f",
+            "router_address": "0x10ed43c718714eb63d5aa57b78b54704e256024e",
             "base_token_address": "0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c",
             "media_token_addresses": [
                 "0x2170ed0880ac9a755fd29b2688956bd959f933f8",
