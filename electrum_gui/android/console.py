@@ -2951,7 +2951,6 @@ class AndroidCommands(commands.Commands):
         :bip39_derivation: user defined path as string
         :return: xpub string
         """
-        self.hw_info.clear()
 
         if is_coin_migrated(coin):
             feature = hardware_manager.get_feature(path)
