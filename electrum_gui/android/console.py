@@ -790,7 +790,7 @@ class AndroidCommands(commands.Commands):
                         except_list.append(temp_data)
                         pass
                 # return json.dumps(except_list)
-            # self.sync_timer = threading.Timer(5.0, self.pull_tx_infos)
+            # self.sync_timer = threading.Timer(5.0, self._pull_tx_infos)
             # self.sync_timer.start()
         except BaseException as e:
             raise BaseException(e)
@@ -5067,7 +5067,7 @@ class AndroidCommands(commands.Commands):
             self.check_password(password=password)
 
         if hd is not None:
-            self.delete_derived_wallet()
+            self._delete_derived_wallet()
             wallet_manager.clear_all_primary_wallets(password)
         else:
             if isinstance(wallet, GeneralWallet):
