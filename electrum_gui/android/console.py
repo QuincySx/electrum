@@ -24,15 +24,12 @@ from eth_account import account as eth_account_account
 from eth_keys import keys
 from hexbytes import HexBytes
 from mnemonic import Mnemonic
-from trezorlib.customer_ui import CustomerUI
 
 from electrum import MutiBase, bitcoin, commands, constants, daemon, ecc, keystore
 from electrum import mnemonic as electrum_mnemonic
 from electrum import paymentrequest, simple_config, util
 from electrum.address_synchronizer import TX_HEIGHT_FUTURE, TX_HEIGHT_LOCAL
-from electrum.bip32 import BIP32Node
-from electrum.bip32 import convert_bip32_path_to_list_of_uint32 as parse_path
-from electrum.bip32 import get_uncompressed_key
+from electrum.bip32 import BIP32Node, get_uncompressed_key
 from electrum.bitcoin import COIN
 from electrum.constants import read_json
 from electrum.eth_wallet import Abstract_Eth_Wallet, Eth_Wallet, Imported_Eth_Wallet, Standard_Eth_Wallet
@@ -2319,12 +2316,9 @@ class AndroidCommands(commands.Commands):
         if not self.wallet.is_mine(address):
             raise util.AddressNotInCurrentWallet()
 
-        if is_coin_migrated(coin):
-            sig = self.wallet.sign_message(address, message, password, path)
-        else:
-            if path:
-                self.trezor_manager.ensure_client(path)
-            sig = self.wallet.sign_message(address, message, password)
+        bip44_path = self.wallet.get_derivation_path(address)
+        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        sig = provider_manager.hardware_sign_message(chain_code, path, message, bip44_path)
 
         return text_utils.force_text(sig)
 
@@ -2349,12 +2343,8 @@ class AndroidCommands(commands.Commands):
         elif not is_coin_migrated(coin):
             raise util.UnsupportedCurrencyCoin()
         try:
-            if is_coin_migrated(coin):
-                verified = self.wallet.verify_message(address, message, signature, path=path)
-            else:
-                if path:
-                    self.trezor_manager.ensure_client(path)
-                verified = self.wallet.verify_message(address, message, signature)
+            chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+            verified = provider_manager.hardware_verify_message(chain_code, path, address, message, signature)
         except Exception:
             verified = False
 
@@ -2738,33 +2728,13 @@ class AndroidCommands(commands.Commands):
             }
         )
         unsigned_tx = provider_manager.fill_unsigned_tx(chain_code, unsigned_tx)
-        signed_tx_hex = None
 
         if isinstance(self.wallet.get_keystore(), Hardware_KeyStore) and path is not None:
-            address_path = self.wallet.get_derivation_path(from_address)
-            address_n = parse_path(address_path)
-            self.trezor_manager.ensure_client(path)
-
-            output = unsigned_tx.outputs[0]
-            if output.token_address is not None:  # erc20 transfer
-                to_address = output.token_address
-                value = 0
-            else:
-                to_address = output.address
-                value = output.value
-            data = unsigned_tx.payload["data"]
-            if data is not None:
-                data = bytes.fromhex(eth_utils.remove_0x_prefix(data))
-            signed_tx_hex = self.wallet.sign_transaction(
-                address_n,
-                unsigned_tx.nonce,
-                unsigned_tx.fee_price_per_unit,
-                unsigned_tx.fee_limit,
-                to_address,
-                value,
-                data=data,
-                chain_id=int(coin_manager.get_chain_info(chain_code).chain_id),
+            bip44_path = self.wallet.get_derivation_path(from_address)
+            signed_tx = provider_manager.hardware_sign_transaction(
+                chain_code, path, unsigned_tx, {from_address: bip44_path}
             )
+            signed_tx_hex = signed_tx.raw_tx
         else:
             signer = helpers.EthSoftwareSigner(self.wallet, password)
             signed_tx = provider_manager.sign_transaction(chain_code, unsigned_tx, {from_address: signer})
@@ -2882,7 +2852,7 @@ class AndroidCommands(commands.Commands):
         """
         try:
             if path is not None:
-                self.trezor_manager.ensure_client(path)
+                self.trezor_manager.ensure_legacy_plugin_client(path)
             self._assert_wallet_isvalid()
             tx = tx_from_any(tx)
             tx.deserialize()
@@ -2921,12 +2891,8 @@ class AndroidCommands(commands.Commands):
         if settings.IS_DEV and coin == "tbtc":
             coin = "btc"  # Workaround for tbtc, trezor plugin only checks whether coin is "btc".
 
-        if is_coin_migrated(self.wallet.coin) and isinstance(self.wallet, GeneralWallet):
-            self.wallet.show_address(hardware_device_path=path)
-        else:
-            self.trezor_manager.plugin.show_address(
-                path=path, ui=CustomerUI(), wallet=self.wallet, address=address, coin=coin
-            )
+        bip44_path = self.wallet.get_derivation_path(address)
+        provider_manager.hardware_get_address(coin, path, bip44_path, confirm_on_device=True)
         return "1"
 
     def is_encrypted_with_hw_device(self):
@@ -2994,21 +2960,21 @@ class AndroidCommands(commands.Commands):
                 else:
                     derivation = bip44_derivation(account_id, bip43_purpose=84)
                     self.hw_info["type"] = 84
-                xpub = self.trezor_manager.get_xpub(path, derivation, _type, is_creating)
+                xpub = self.trezor_manager.get_xpub(coin, path, derivation, _type, is_creating)
             elif chain_affinity == "eth":
                 self.hw_info["type"] = 44
                 derivation = bip44_eth_derivation(account_id)
 
                 derivation = util.get_keystore_path(derivation)
-                xpub = self.trezor_manager.get_eth_xpub(path, derivation)
+                xpub = self.trezor_manager.get_eth_xpub(coin, path, derivation)
             else:
                 raise util.UnsupportedCurrencyCoin()
         else:
             self.hw_info["bip39_derivation"] = bip39_derivation
             if chain_affinity == "btc":
-                xpub = self.trezor_manager.get_xpub(path, bip39_derivation, _type, is_creating)
+                xpub = self.trezor_manager.get_xpub(coin, path, bip39_derivation, _type, is_creating)
             elif chain_affinity == "eth":
-                xpub = self.trezor_manager.get_eth_xpub(path, bip39_derivation)
+                xpub = self.trezor_manager.get_eth_xpub(coin, path, bip39_derivation)
             else:
                 raise util.UnsupportedCurrencyCoin()
 

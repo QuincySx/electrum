@@ -1,43 +1,20 @@
-import hashlib
 import json
-import threading
-from typing import Any, Optional
+import logging
+from typing import Optional
 
-# TODO: all these trezorlib imports should be moved into the lower level
-# trezorclient, perhaps except for the module trezor_exceptions. So that this
-# module only communicates with the trezor plugin, no lower level functions
-# would be directly called from this module.
 from trezorlib import customer_ui as trezorlib_customer_ui
-from trezorlib import exceptions as trezor_exceptions
-from trezorlib import firmware as trezor_firmware
 
+from electrum import constants as electrum_constants
+from electrum import keystore as electrum_keystore
 from electrum import plugin as electrum_plugin
-from electrum.i18n import _
-from electrum.plugins.trezor import clientbase as trezor_clientbase
-from electrum_gui.android import firmware_sign_nordic_dfu
-from electrum_gui.common.basic import api, exceptions
+from electrum_gui.common.basic import api
+from electrum_gui.common.hardware import manager as hardware_manager
+from electrum_gui.common.hardware.callbacks import helper as hardware_agent_helper
+from electrum_gui.common.provider import manager as provider_manager
 
 TREZOR_PLUGIN_NAME = 'trezor'
 
-
-def _do_firmware_update(
-    client: trezor_clientbase.TrezorClientBase, data: bytes, type: str, dry_run: bool = False
-) -> None:
-    if dry_run:
-        print("Dry run. Not uploading firmware to device.")
-        return
-
-    confirm_needed = client.features.major_version == 1 and client.features.firmware_present
-    if confirm_needed:
-        # Trezor One does not send ButtonRequest
-        print("Please confirm the action on your Trezor device")
-
-    try:
-        return trezor_firmware.update(client.client, data, type=type)
-    except trezor_exceptions.Cancelled:
-        print("Update aborted on device.")
-    except trezor_exceptions.TrezorException as e:
-        raise BaseException(_("Update failed: {}".format(e)))
+logger = logging.getLogger("app.hardware")
 
 
 class TrezorManager(object):
@@ -64,71 +41,39 @@ class TrezorManager(object):
 
     def __init__(self, plugin_manager: electrum_plugin.Plugins) -> None:
         self.plugin = plugin_manager.get_plugin(TREZOR_PLUGIN_NAME)
-        # TODO: check whether multiple clients are really needed.
-        # With the latest commit(d68b538058d), only one client is allowed.
-        # However, it seems that the client can be overwritten and thus
-        # reinitialization of the client can happen many times.
-        # See d68b538058d/electrum/plugins/trezor/trezor.py#L188,L203
-        # To avoid redundant works, use a dict to store the needed clients.
-        self.clients = dict()
-        # NOTE: this lock is only used in get_feature(), should be removed
-        # when no longer needed.
-        self.lock = threading.RLock()
 
-    def _get_client(self, path: str, from_recovery=False) -> trezor_clientbase.TrezorClientBase:
-        # The meaning of 'path' is obsecure, it is used in the plugin to
-        # select a device.
-        # dict.setdefault() is not short-circuiting.
-        client = self.clients.get(path)
-        # In order to awake hardware device from some unnormal state
-        # but not be suitable in recovery process so use `from_recovery` keywords args to protect
-        if client and not from_recovery:
-            client.client.init_device()
-        client = client or self.clients.setdefault(
-            path,
-            self.plugin.get_client(
-                path=path,
-                ui=trezorlib_customer_ui.CustomerUI()
-                # TODO: this ui parameter is not used and should be removed.
-            ),
-        )
-        return client
-
-    def _bridge(self, path: str, method: str, *args, from_recovery=False, **kwargs) -> Any:
-        # Bridge calls to the trezor client.
-        # TODO: this bridge method is only used for raising the BaseException
-        # because the caller might still expect a BaseException. Once we catch
-        # the excetpions in the upper call itself (and raise generic
-        # exceptions there), this should be removed.
-        try:
-            return getattr(self._get_client(path, from_recovery=from_recovery), method)(*args, **kwargs)
-        except Exception as e:
-            raise BaseException(e)
-
-    def _json_bridge(self, path: str, method: str, *args, **kwargs) -> Any:
-        return json.dumps(self._bridge(path, method, *args, **kwargs))
-
-    # === Begin helper methods used in console.AndroidCommands ===
-
-    @api.api_entry()
-    def ensure_client(self, path: str) -> None:
-        self._get_client(path)
+    def ensure_legacy_plugin_client(self, path: str):
+        """
+        Fixme: Keep it until it is fully migrated
+        Affected interface: sign_tx
+        """
+        self.plugin.get_client(path=path, ui=trezorlib_customer_ui.CustomerUI())
 
     def get_device_id(self, path: str, from_recovery=False) -> str:
-        client = self._get_client(path, from_recovery=from_recovery)
-        return client.features.serial_num
+        feature = hardware_manager.get_feature(hardware_device_path=path)
+        return feature["serial_num"]
 
-    def get_xpub(self, path: str, derivation: str, _type: str, creating: bool, from_recovery=False) -> str:
-        return self._bridge(
-            path, 'get_xpub', from_recovery=from_recovery, bip32_path=derivation, xtype=_type, creating=creating
-        )
+    def get_xpub(self, coin: str, path: str, derivation: str, _type: str, creating: bool, from_recovery=False) -> str:
+        hardware_agent_helper.set_value_to_agent("is_creating_wallet", creating)
+        return provider_manager.hardware_get_xpub(coin, path, derivation)
 
-    def get_eth_xpub(self, path: str, derivation: str, from_recovery=False) -> str:
-        return self._bridge(path, 'get_eth_xpub', from_recovery=from_recovery, bip32_path=derivation)
+    def get_eth_xpub(self, coin, path: str, derivation: str, from_recovery=False) -> str:
+        xpub = provider_manager.hardware_get_xpub(coin, path, derivation)
+
+        if electrum_constants.net.TESTNET and xpub.startswith("xpub"):
+            node = electrum_keystore.BIP32Node.from_xkey(xpub, net=electrum_constants.BitcoinMainnet)
+            return node.to_xpub(net=electrum_constants.BitcoinTestnet)
+        else:
+            return xpub
 
     # === End helper methods used in console.AndroidCommands ===
 
     # Below are exposed methods, would be directly called from the upper users.
+
+    @api.api_entry()
+    def ensure_client(self, path: str) -> None:
+        self.get_feature(path)  # ensure new way
+        self.ensure_legacy_plugin_client(path)  # ensure old way
 
     @api.api_entry()
     def hardware_verify(self, msg: str, path: str = "android_usb") -> str:
@@ -142,32 +87,25 @@ class TrezorManager(object):
              'is_verified': 'True',
              'last_check_time': 1611904981}
         """
-        digest = hashlib.sha256(msg.encode('utf-8')).digest()
-        cert, signature = self._bridge(path, 'se_verify', digest)
-        params = {"data": msg, "cert": cert, "signature": signature}
-        verify_url = "https://key.bixin.com/lengqian.bo/"
-        import requests
-
-        try:
-            res = requests.post(verify_url, data=params, timeout=30)
-        except Exception as e:
-            # TODO: check this translation is not needed and use
-            # RestfulRequest to do the whole verification job.
-            raise BaseException(_(str(e))) from e
-        else:
-            return res.text
+        result = hardware_manager.do_anti_counterfeiting_verification(path, msg)
+        return json.dumps(result)
 
     @api.api_entry()
     def backup_wallet(self, path: str = "android_usb") -> str:
         """
+        Deprecated
+
         Backup wallet by se
         :param path: NFC/android_usb/bluetooth as str, used by hardware
         :return:
         """
-        return self._bridge(path, 'backup')
+        raise NotImplementedError()
 
     def se_proxy(self, message: str, path: str = "android_usb") -> str:
-        return self._bridge(path, 'se_proxy', message)
+        """
+        Deprecated
+        """
+        raise NotImplementedError()
 
     @api.api_entry()
     def bixin_backup_device(self, path: str = "android_usb") -> str:
@@ -176,16 +114,16 @@ class TrezorManager(object):
         :param path: NFC/android_usb/bluetooth as str
         :return: as string
         """
-        return self._bridge(path, 'bixin_backup_device')
+        return hardware_manager.backup_mode__read_mnemonic_from_device(path)
 
     @api.api_entry()
     def bixin_load_device(
         self,
         path: str = "android_usb",
         mnemonics: Optional[str] = None,
-        language: str = "en-US",
+        language: str = "english",
         label: str = "OneKey",
-    ) -> str:
+    ) -> bool:
         """
         Import seed, used by hardware
         :param path: NFC/android_usb/bluetooth as str
@@ -194,21 +132,28 @@ class TrezorManager(object):
         :param label:  used to set hardware label
         :return: raise except if error
         """
-        return self._bridge(path, 'bixin_load_device', mnemonics=mnemonics, language=language, label=label)
+        return hardware_manager.backup_mode__write_mnemonic_to_device(
+            path, mnemonic=mnemonics, language=language, label=label
+        )
 
     @api.api_entry()
     def recovery_wallet_hw(self, path: str = "android_usb", *args) -> str:
         """
+        Deprecated
+
         Recovery wallet by encryption
         :param path: NFC/android_usb/bluetooth as str, used by hardware
         :param args: encryption data as str
         :return:
         """
-        return self._bridge(path, 'recovery', *args)
+
+        raise NotImplementedError()
 
     @api.api_entry()
     def bx_inquire_whitelist(self, path: str = "android_usb", **kwargs) -> str:
         """
+        Deprecated
+
         Inquire
         :param path: NFC/android_usb/bluetooth as str, used by hardware
         :param kwargs:
@@ -216,11 +161,13 @@ class TrezorManager(object):
             addr_in: addreess as str
         :return:
         """
-        return self._json_bridge(path, 'bx_inquire_whitelist', **kwargs)
+        raise NotImplementedError()
 
     @api.api_entry()
     def bx_add_or_delete_whitelist(self, path: str = "android_usb", **kwargs) -> str:
         """
+        Deprecated
+
         Add and delete whitelist
         :param path: NFC/android_usb/bluetooth as str, used by hardware
         :param kwargs:
@@ -228,7 +175,7 @@ class TrezorManager(object):
             addr_in: addreess as str
         :return:
         """
-        return self._json_bridge(path, 'bx_add_or_delete_whitelist', **kwargs)
+        raise NotImplementedError()
 
     @api.api_entry()
     def apply_setting(self, path: str = "nfc", **kwargs) -> int:
@@ -245,14 +192,13 @@ class TrezorManager(object):
             is_bixinapp=true/false
         :return:0/1
         """
-        resp = self._bridge(path, 'apply_settings', **kwargs)
-        return 1 if resp == "Settings applied" else 0
+        return 1 if hardware_manager.apply_settings(path, settings=kwargs) else 0
 
     @api.api_entry()
     def init(
         self,
         path: str = "android_usb",
-        label: str = "BIXIN KEY",
+        label: str = "OneKey",
         language: str = "english",
         stronger_mnemonic: Optional[str] = None,
         use_se: bool = False,
@@ -263,14 +209,19 @@ class TrezorManager(object):
         :param path: NFC/android_usb/bluetooth as str
         :param label: name as string
         :param language: as string
-        :param use_se: as bool
+        :param use_se: as bool (deprecated)
         :return:0/1
         """
-        if use_se:
-            self.apply_settings(path, use_se=True)
-        strength = 256 if stronger_mnemonic else 128
-        response = self._bridge(path, 'reset_device', language=language, label=label, strength=strength)
-        return 1 if response == "Device successfully initialized" else 0
+        return (
+            1
+            if hardware_manager.setup_mnemonic_on_device(
+                path,
+                language=language,
+                label=label,
+                mnemonic_strength=256 if stronger_mnemonic else 128,
+            )
+            else 0
+        )
 
     @api.api_entry()
     def reset_pin(self, path: str = "android_usb") -> int:
@@ -279,17 +230,7 @@ class TrezorManager(object):
         :param path:NFC/android_usb/bluetooth as str
         :return:0/1
         """
-        try:
-            # TODO: not using self._bridge() because we need to catch low-level
-            # exceptions.
-            client = self._get_client(path)
-            client.set_pin(False)
-        except (trezor_exceptions.PinException, RuntimeError):
-            return 0
-        except Exception:
-            raise BaseException("user cancel")
-
-        return 1
+        return 1 if hardware_manager.setup_or_change_pin(path) else 0
 
     @api.api_entry()
     def wipe_device(self, path: str = "android_usb") -> int:
@@ -298,21 +239,11 @@ class TrezorManager(object):
         :param path: NFC/android_usb/bluetooth as str
         :return:0/1
         """
-        try:
-            # TODO: not using self._bridge() because we need to catch low-level
-            # exceptions.
-            client = self._get_client(path)
-            resp = client.wipe_device()
-        except (trezor_exceptions.PinException, RuntimeError):
-            return 0
-        except Exception as e:
-            raise BaseException(str(e)) from e
-
-        return 1 if resp == "Device wiped" else 0
+        return 1 if hardware_manager.wipe_device(path) else 0
 
     def get_passphrase_status(self, path: str = "android_usb") -> bool:
-        client = self._get_client(path=path)
-        return client.features.passphrase_protection
+        feature = hardware_manager.get_feature(path)
+        return feature.get("passphrase_protection", False)
 
     @api.api_entry()
     def get_feature(self, path: str = "android_usb") -> str:
@@ -373,12 +304,9 @@ class TrezorManager(object):
             serial_num: str = None 硬件序列号  (从2.0.7开始加入，用来取代`device_id`作为硬件唯一标识)
             }
         """
-        with self.lock:
-            # TODO: why is this lock needed
-            self.plugin.clean()
-            self.clients.pop(path, None)
-            client = self._get_client(path=path)
-        return json.dumps(client.features_dict)
+        result = hardware_manager.get_feature(path, force_refresh=True)
+
+        return json.dumps(result)
 
     @api.api_entry(force_version=api.Version.V2)
     def firmware_update(
@@ -403,42 +331,7 @@ class TrezorManager(object):
         :param type: use to different nrf and stm32, "" means stm32
         :return: None
         """
-        if not filename:
-            raise BaseException("Please give the file name")
+        if type or fingerprint or not skip_check:
+            raise NotImplementedError()
 
-        try:
-            if type:
-                data = firmware_sign_nordic_dfu.parse(filename)
-            else:
-                with open(filename, "rb") as datafile:
-                    data = datafile.read()
-        except Exception as e:
-            raise BaseException(e)
-
-        client = self._get_client(path)
-        try:
-            is_bootloader = client.reboot_to_bootloader()
-        except Exception as e:
-            if "PIN" in str(e):
-                raise exceptions.HardwareInvalidPIN() from e
-            else:
-                raise exceptions.HardwareUpdateFailed() from e
-        else:
-            if not is_bootloader:
-                # reboot returned normal with initial state
-                raise exceptions.HardwareUpdateFailed(_("Upgrade failed due to invalid state"))
-        # raw is always False currently
-        if raw:
-            return _do_firmware_update(client, data, type, dry_run=dry_run)
-
-        bootloader_onev2 = client.features.major_version == 1 and client.features.minor_version >= 8
-        embedded = bootloader_onev2 and data[:4] == b'TRZR' and data[256:260] == b'TRZF'
-        if embedded:
-            print("Extracting embedded firmware image " "(fingerprint may change).")
-            data = data[256:]
-
-        if skip_check:
-            try:
-                _do_firmware_update(client, data, type, dry_run=dry_run)
-            except Exception as e:
-                raise exceptions.HardwareUpdateFailed() from e
+        hardware_manager.update_firmware(path, filename, is_raw_data_only=raw, dry_run=dry_run)

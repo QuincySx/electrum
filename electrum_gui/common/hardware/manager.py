@@ -56,7 +56,7 @@ def get_client(hardware_device_path: str, force_check: bool = False) -> proxy.Ha
         raise exceptions.NoAvailableDevice()
 
     client.ensure_device()
-    _CLIENTS[hardware_device_path] = (client, int(time.time() + 300))
+    _CLIENTS[hardware_device_path] = (client, int(time.time() + 10))
     return client
 
 
@@ -72,38 +72,38 @@ def get_key_id(hardware_device_path: str) -> str:
     return get_client(hardware_device_path).get_key_id()
 
 
-def verify_secure_element(hardware_device_path: str, message: str) -> dict:
-    return get_client(hardware_device_path).verify_secure_element(message)
+def do_anti_counterfeiting_verification(hardware_device_path: str, message: str) -> dict:
+    return get_client(hardware_device_path).do_anti_counterfeiting_verification(message)
 
 
-def backup_mnemonic_on_device(hardware_device_path: str) -> str:
-    return get_client(hardware_device_path).backup_mnemonic_on_device()
+def backup_mode__read_mnemonic_from_device(hardware_device_path: str) -> str:
+    return get_client(hardware_device_path).backup_mode__read_mnemonic_from_device()
 
 
-def import_mnemonic_to_device(
+def backup_mode__write_mnemonic_to_device(
     hardware_device_path: str,
     mnemonic: str,
     language: str = "english",
     label: str = "OneKey",
-) -> str:
-    return get_client(hardware_device_path).import_mnemonic_to_device(mnemonic, language, label)
+) -> bool:
+    return get_client(hardware_device_path).backup_mode__write_mnemonic_to_device(mnemonic, language, label)
 
 
 def apply_settings(hardware_device_path: str, settings: dict) -> bool:
     return get_client(hardware_device_path).apply_settings(settings)
 
 
-def reset_device(
+def setup_mnemonic_on_device(
     hardware_device_path: str,
     language: str = "english",
     label: str = "OneKey",
     mnemonic_strength: int = 128,
 ) -> bool:
-    return get_client(hardware_device_path).reset_device(language, label, mnemonic_strength)
+    return get_client(hardware_device_path).setup_mnemonic_on_device(language, label, mnemonic_strength)
 
 
-def change_pin(hardware_device_path: str) -> bool:
-    return get_client(hardware_device_path).change_pin()
+def setup_or_change_pin(hardware_device_path: str) -> bool:
+    return get_client(hardware_device_path).setup_or_change_pin()
 
 
 def wipe_device(hardware_device_path: str) -> bool:
