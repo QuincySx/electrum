@@ -56,6 +56,13 @@
       "decimals": 18
     },
     {
+      "name": "COCO Token",
+      "symbol": "COCO",
+      "logoURI": "https://onekey-asset.com/assets/heco/0x8871da134f113f6819ba106df2b95af5bac90eb8.png",
+      "address": "0x8871da134f113f6819ba106df2b95af5bac90eb8",
+      "decimals": 18
+    },
+    {
       "name": "Heco-Peg HBSV Token",
       "symbol": "HBSV",
       "logoURI": "https://hecoinfo.com/token/images/HBSV_32.png",
