@@ -816,32 +816,26 @@ class AndroidCommands(commands.Commands):
             return self._recovery_hd_derived_wallet(xpub=self.hw_info["xpub"], hw=True, path=path)
         self.set_multi_wallet_info(name, m, n)
         xpubs_list = json.loads(xpubs)
-        if self.hw_info.get("bip39_derivation"):
+
+        if is_coin_migrated(coin):
+            if self.hw_info.get("bip39_derivation"):
+                wallet = GeneralWallet.from_hardware_with_custom_path(
+                    name, coin, self.config, path, self.hw_info["bip39_derivation"], xpubs_list[0][0]
+                )
+                wallet_type = wallet.db.get("wallet_type")
+                wallet_info = self._base_create_wallet(name, wallet, coin, wallet_type)
+            else:
+                wallet = GeneralWallet.from_hardware(name, coin, self.config, path, xpubs_list[0][0])
+                wallet_type = wallet.db.get("wallet_type")
+                wallet_info = self._base_create_wallet(name, wallet, coin, wallet_type)
+        elif self.hw_info.get("bip39_derivation"):
             path = self.hw_info.get("bip39_derivation")
             wallet_info, wallet = self._create_customer_wallet(name, xpubs_list, coin=coin)
         else:
             self.set_multi_wallet_info(name, m, n)
-            xpubs_list = json.loads(xpubs)
-
-            if is_coin_migrated(coin):
-                if self.hw_info.get("bip39_derivation"):
-                    wallet = GeneralWallet.from_hardware_with_custom_path(
-                        name, coin, self.config, path, self.hw_info["bip39_derivation"], xpubs_list[0][0]
-                    )
-                    wallet_type = wallet.db.get("wallet_type")
-                    wallet_info = self._base_create_wallet(name, wallet, coin, wallet_type)
-                else:
-                    wallet = GeneralWallet.from_hardware(name, coin, self.config, path, xpubs_list[0][0])
-                    wallet_type = wallet.db.get("wallet_type")
-                    wallet_info = self._base_create_wallet(name, wallet, coin, wallet_type)
-            elif self.hw_info.get("bip39_derivation"):
-                path = self.hw_info.get("bip39_derivation")
-                wallet_info, wallet = self._create_customer_wallet(name, xpubs_list, coin=coin)
-            else:
-                self.set_multi_wallet_info(name, m, n)
-                derivation = self._get_hw_derivation(
-                    account_id=self.hw_info["account_id"], type=self.hw_info["type"], coin=coin
-                )
+            derivation = self._get_hw_derivation(
+                account_id=self.hw_info["account_id"], type=self.hw_info["type"], coin=coin
+            )
 
             for xpub_info in xpubs_list:
                 if len(xpub_info) == 2:
