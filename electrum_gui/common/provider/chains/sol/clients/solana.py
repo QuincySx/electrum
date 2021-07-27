@@ -127,6 +127,9 @@ class Solana(ClientInterface, SearchTransactionMixin):
         outputs = []
         for instruction in result["transaction"]["message"]["instructions"]:
             transaction_info = instruction["parsed"]["info"]
+            instruction_type = instruction["parsed"]["type"]
+            if instruction_type != "transfer":
+                continue
             program_id = instruction["programId"]
             from_address = transaction_info["source"]
             to_address = transaction_info["destination"]
@@ -137,7 +140,7 @@ class Solana(ClientInterface, SearchTransactionMixin):
             elif program_id == str(spl_token.SYS_PROGRAM_ID):
                 value = transaction_info["lamports"]
             else:
-                raise Exception("unknown program_id")
+                continue
             inputs.append(TransactionInput(address=from_address, value=value, token_address=token_address))
             outputs.append(TransactionOutput(address=to_address, value=value, token_address=token_address))
         fee = result["meta"]["fee"]

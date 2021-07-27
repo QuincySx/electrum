@@ -29,7 +29,9 @@ class TestCoinManager(TestCase):
 
         cls.coin_btc = Mock(chain_code="btc", code="btc")
         cls.coin_eth = Mock(chain_code="eth", code="eth")
-        cls.coin_eth_usdt = Mock(chain_code="eth", code="eth_usdt", token_address="0x12")
+        cls.coin_eth_usdt = Mock(
+            chain_code="eth", code="eth_usdt", token_address="0x52ce071bd9b1c4b00a0b92d298c512478cad67e7"
+        )
         cls.coin_bsc = Mock(chain_code="bsc", code="bsc")
 
         cls.coin_ont = Mock(chain_code="ont", code="ont")
@@ -45,15 +47,30 @@ class TestCoinManager(TestCase):
 
     def setUp(self) -> None:
         self.coin_db_eth_usdc = data.CoinInfo(
-            code="eth_usdc", chain_code="eth", name="USD Coin", symbol="USDC", decimals=6, token_address="0x11"
+            code="eth_usdc",
+            chain_code="eth",
+            name="USD Coin",
+            symbol="USDC",
+            decimals=6,
+            token_address="0x52ce071bd9b1c4b00a0b92d298c512478cad67e8",
         )
 
         self.coin_db_eth_usdt = data.CoinInfo(
-            code="eth_usdt", chain_code="eth", name="USDT", symbol="USDT", decimals=6, token_address="0x12"
+            code="eth_usdt",
+            chain_code="eth",
+            name="USDT",
+            symbol="USDT",
+            decimals=6,
+            token_address="0x52ce071bd9b1c4b00a0b92d298c512478cad67e7",
         )
 
         self.coin_db_bsc_usdc = data.CoinInfo(
-            code="bsc_usdc", chain_code="bsc", name="USD Coin", symbol="USDC", decimals=6, token_address="0x21"
+            code="bsc_usdc",
+            chain_code="bsc",
+            name="USD Coin",
+            symbol="USDC",
+            decimals=6,
+            token_address="0x52ce071bd9b1c4b00a0b92d298c512478cad67e6",
         )
 
         daos.add_coin(
@@ -156,13 +173,18 @@ class TestCoinManager(TestCase):
     @patch("electrum_gui.common.coin.manager.daos.update_coin_info")
     def test_add_coin(self, fake_update_coin_info, fake_add_coin):
         with self.subTest("Add coin that already exists in the local list"):
-            self.assertEqual("eth_usdt", manager.add_coin("eth", "0x12", "USDT", 6))
+            self.assertEqual(
+                "eth_usdt", manager.add_coin("eth", "0x52ce071bd9b1c4b00a0b92d298c512478cad67e7", "USDT", 6)
+            )
             fake_add_coin.assert_not_called()
             fake_update_coin_info.assert_not_called()
 
         with self.subTest("Add coin that already exists in the db"):
             self.assertEqual(
-                "eth_usdc", manager.add_coin("eth", "0x11", "USDC", 6, name="New USD Coin", icon="new icon")
+                "eth_usdc",
+                manager.add_coin(
+                    "eth", "0x52ce071bd9b1c4b00a0b92d298c512478cad67e8", "USDC", 6, name="New USD Coin", icon="new icon"
+                ),
             )
             fake_add_coin.assert_not_called()
             fake_update_coin_info.assert_called_once_with("eth_usdc", name="New USD Coin", icon="new icon")
@@ -170,13 +192,16 @@ class TestCoinManager(TestCase):
 
         with self.subTest("Add coin with duplicated symbol"):
             self.assertEqual(
-                "eth_usdc_0x13", manager.add_coin("eth", "0x13", "USDC", 6, name="New USD Coin", icon="new icon")
+                "eth_usdc_0x52ce",
+                manager.add_coin(
+                    "eth", "0x52ce071bd9b1c4b00a0b92d298c512478cad67e5", "USDC", 6, name="New USD Coin", icon="new icon"
+                ),
             )
             fake_add_coin.assert_called_once_with(
                 data.CoinInfo(
-                    code="eth_usdc_0x13",
+                    code="eth_usdc_0x52ce",
                     chain_code="eth",
-                    token_address="0x13",
+                    token_address="0x52ce071bd9b1c4b00a0b92d298c512478cad67e5",
                     symbol="USDC",
                     decimals=6,
                     name="New USD Coin",
@@ -187,13 +212,13 @@ class TestCoinManager(TestCase):
             fake_add_coin.reset_mock()
 
         with self.subTest("Add coin in most cases"):
-            self.assertEqual("eth_cc", manager.add_coin("eth", "0x13", "CC", 18))
+            self.assertEqual("eth_cc", manager.add_coin("eth", "0x52ce071bd9b1c4b00a0b92d298c512478cad67e5", "CC", 18))
 
             fake_add_coin.assert_called_once_with(
                 data.CoinInfo(
                     code="eth_cc",
                     chain_code="eth",
-                    token_address="0x13",
+                    token_address="0x52ce071bd9b1c4b00a0b92d298c512478cad67e5",
                     symbol="CC",
                     decimals=18,
                     name="CC",
@@ -206,18 +231,33 @@ class TestCoinManager(TestCase):
     def test_query_coins_by_token_addresses(self):
         self.assertEqual(
             [self.coin_eth_usdt, self.coin_db_eth_usdc],
-            manager.query_coins_by_token_addresses("eth", ["0x11", "0x12", "0x13"]),
+            manager.query_coins_by_token_addresses(
+                "eth",
+                [
+                    "0x52ce071bd9b1c4b00a0b92d298c512478cad67e8",
+                    "0x52ce071bd9b1c4b00a0b92d298c512478cad67e7",
+                    "0x52ce071bd9b1c4b00a0b92d298c512478cad67e5",
+                ],
+            ),
         )
-        self.assertEqual([self.coin_db_bsc_usdc], manager.query_coins_by_token_addresses("bsc", ["0x21"]))
+        self.assertEqual(
+            [self.coin_db_bsc_usdc],
+            manager.query_coins_by_token_addresses("bsc", ["0x52ce071bd9b1c4b00a0b92d298c512478cad67e6"]),
+        )
         self.assertEqual([self.coin_ong], manager.query_coins_by_token_addresses("ont", ["0x31"]))
 
     def test_get_coin_by_token_address(self):
         with self.subTest("get coin by token address as expected"):
-            self.assertEqual(self.coin_db_eth_usdc, manager.get_coin_by_token_address("eth", "0x11"))
+            self.assertEqual(
+                self.coin_db_eth_usdc,
+                manager.get_coin_by_token_address("eth", "0x52ce071bd9b1c4b00a0b92d298c512478cad67e8"),
+            )
 
         with self.subTest("get coin by token address but nothing found"):
-            with self.assertRaisesRegex(exceptions.CoinNotFoundByTokenAddress, "0x13"):
-                manager.get_coin_by_token_address("eth", "0x13")
+            with self.assertRaisesRegex(
+                exceptions.CoinNotFoundByTokenAddress, "0x52ce071bd9b1c4b00a0b92d298c512478cad67e5"
+            ):
+                manager.get_coin_by_token_address("eth", "0x52ce071bd9b1c4b00a0b92d298c512478cad67e5")
 
         with self.subTest("automatically add token address"):
             with patch(
@@ -228,13 +268,15 @@ class TestCoinManager(TestCase):
                     data.CoinInfo(
                         code="eth_cc",
                         chain_code="eth",
-                        token_address="0x13",
+                        token_address="0x52ce071bd9b1c4b00a0b92d298c512478cad67e5",
                         symbol="CC",
                         decimals=18,
                         name="Chain Coin",
                         icon=None,
                     ),
-                    manager.get_coin_by_token_address("eth", "0x13", add_if_missing=True),
+                    manager.get_coin_by_token_address(
+                        "eth", "0x52ce071bd9b1c4b00a0b92d298c512478cad67e5", add_if_missing=True
+                    ),
                 )
 
     @patch("electrum_gui.common.coin.manager.settings")

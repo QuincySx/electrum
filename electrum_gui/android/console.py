@@ -2414,9 +2414,7 @@ class AndroidCommands(commands.Commands):
         tokens_dict = self._tokens_dict_of_chain.get(chain_code)
 
         if tokens_dict is None:
-            tokens_dict = {
-                i["address"].lower(): i for i in read_json(f"{chain_code}_token_list.json", {}).get("tokens", ())
-            }
+            tokens_dict = {i["address"]: i for i in read_json(f"{chain_code}_token_list.json", {}).get("tokens", ())}
             self._tokens_dict_of_chain[chain_code] = tokens_dict
 
         return tokens_dict
@@ -2440,14 +2438,12 @@ class AndroidCommands(commands.Commands):
         token_dict = self._load_tokens_dict(chain_code)
         top_50_tokens = set(itertools.islice(token_dict.keys(), 50))
         db_token_coins = coin_manager.get_coins_by_chain(chain_code)
-        custom_token_coins = (
-            i for i in db_token_coins if i.token_address and i.token_address.lower() not in top_50_tokens
-        )
+        custom_token_coins = (i for i in db_token_coins if i.token_address not in top_50_tokens)
         custom_token_info_list = [
             {
                 "chain_id": coin_manager.get_chain_info(chain_code).chain_id,
                 "decimals": i.decimals,
-                "address": i.token_address.lower(),
+                "address": i.token_address,
                 "symbol": i.symbol,
                 "name": i.name,
                 "logoURI": i.icon or "",
@@ -2462,7 +2458,7 @@ class AndroidCommands(commands.Commands):
     def add_token(self, symbol, contract_addr, coin=None):
         """
         Add token to eth, for eth/bsc only
-        :param symbol: coin symbol
+        :param symbol: coin symbol only use when not specified by settings
         :param contract_addr: coin address
         :return: raise except if error
         """
@@ -2473,22 +2469,22 @@ class AndroidCommands(commands.Commands):
             coin = self.wallet.coin if self.wallet is not None else "eth"
 
         chain_code = coin_manager.legacy_coin_to_chain_code(coin)
-        chain_info = coin_manager.get_chain_info(chain_code)
-        if chain_info.chain_affinity == "eth":
-            contract_addr = contract_addr.lower()
+        contract_addr = provider_manager.verify_address(chain_code, contract_addr).normalized_address
 
         token_info = self._load_tokens_dict(chain_code).get(contract_addr)
         if token_info is not None:
-            symbol = token_info["symbol"]
+            _symbol = token_info["symbol"]
             decimals = token_info["decimals"]
             name = token_info.get("name")
             icon = token_info.get("logoURI")
         else:
-            symbol, name, decimals = provider_manager.get_token_info_by_address(chain_code, contract_addr)
+            _symbol, name, decimals = provider_manager.get_token_info_by_address(chain_code, contract_addr)
+            if symbol:
+                _symbol = symbol
             icon = None
 
-        coin_manager.add_coin(chain_code, contract_addr, symbol, decimals, name, icon)
-        self.wallet.add_contract_token(symbol, contract_addr)
+        coin_manager.add_coin(chain_code, contract_addr, _symbol, decimals, name, icon)
+        self.wallet.add_contract_token(_symbol, contract_addr)
 
     @api.api_entry()
     def delete_token(self, contract_addr):
