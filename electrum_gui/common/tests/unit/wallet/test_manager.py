@@ -1143,7 +1143,7 @@ class TestWalletManager(TestCase):
                 wallet_manager.sign_message(wallet.id, "Hello OneKey", hardware_device_path=hardware_device_path),
             )
             fake_provider_manager.hardware_sign_message.assert_called_once_with(
-                "eth", hardware_device_path, "m/44'/60'/0'/0/1024", "Hello OneKey"
+                "eth", hardware_device_path, "Hello OneKey", "m/44'/60'/0'/0/1024"
             )
 
     @patch("electrum_gui.common.wallet.manager.provider_manager")

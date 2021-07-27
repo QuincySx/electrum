@@ -195,7 +195,7 @@ def hardware_sign_message(
 ) -> str:
     provider, hardware_client = _ensure_provider_and_hardware_client(chain_code, hardware_device_path)
     signer_bip44_path = _ensure_bip44_path(signer_bip44_path)
-    return provider.hardware_sign_message(hardware_client, signer_bip44_path, message)
+    return provider.hardware_sign_message(hardware_client, message, signer_bip44_path)
 
 
 def hardware_verify_message(
