@@ -45,6 +45,7 @@ from electrum.keystore import (
 from electrum.mnemonic import Wordlist
 from electrum.network import TxBroadcastError
 from electrum.plugin import Plugins
+from electrum.plugins.trezor.trezor import TrezorKeyStore
 from electrum.storage import WalletStorage
 from electrum.transaction import PartialTransaction, PartialTxOutput, SerializationError, Transaction, tx_from_any
 from electrum.util import (
@@ -2316,9 +2317,17 @@ class AndroidCommands(commands.Commands):
         if not self.wallet.is_mine(address):
             raise util.AddressNotInCurrentWallet()
 
-        bip44_path = self.wallet.get_derivation_path(address)
-        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
-        sig = provider_manager.hardware_sign_message(chain_code, path, message, bip44_path)
+        if is_coin_migrated(coin):
+            sig = self.wallet.sign_message(address, message, password=password, path=path)
+        elif isinstance(self.wallet.get_keystore(), TrezorKeyStore) and path is not None:
+            bip44_path = self.wallet.get_derivation_path(address)
+            legacy_keystore: TrezorKeyStore = self.wallet.get_keystore()
+            self._hardware_check_legacy_pair_with(
+                self.wallet.coin, path, legacy_keystore.get_derivation_prefix(), legacy_keystore.xpub
+            )
+            sig = provider_manager.hardware_sign_message(coin, path, message, bip44_path)
+        else:
+            sig = self.wallet.sign_message(address, message, password)
 
         return text_utils.force_text(sig)
 
@@ -2343,8 +2352,12 @@ class AndroidCommands(commands.Commands):
         elif not is_coin_migrated(coin):
             raise util.UnsupportedCurrencyCoin()
         try:
-            chain_code = coin_manager.legacy_coin_to_chain_code(coin)
-            verified = provider_manager.hardware_verify_message(chain_code, path, address, message, signature)
+            if is_coin_migrated(coin):
+                verified = self.wallet.verify_message(address, message, signature, path=path)
+            elif isinstance(self.wallet.get_keystore(), TrezorKeyStore) and path is not None:
+                verified = provider_manager.hardware_verify_message(coin, path, address, message, signature)
+            else:
+                verified = self.wallet.verify_message(address, message, signature)
         except Exception:
             verified = False
 
@@ -2655,6 +2668,18 @@ class AndroidCommands(commands.Commands):
         chain_code = coin
         return provider_manager.get_transaction_by_txid(chain_code, txid).detailed_status
 
+    def _hardware_check_legacy_pair_with(self, coin: str, hardware_device_path: str, bip44_path: str, xpub: str):
+        from electrum import bip32
+
+        xtype = bip32.xpub_type(xpub)
+        client_xpub = (
+            self.trezor_manager.get_xpub(coin, hardware_device_path, bip44_path, xtype, False)
+            if coin == "btc"
+            else self.trezor_manager.get_eth_xpub(coin, hardware_device_path, bip44_path)
+        )
+        if client_xpub != xpub:
+            raise Exception(_("Can't Pair With Your Device"))
+
     @api.api_entry()
     def sign_eth_tx(
         self,
@@ -2729,7 +2754,12 @@ class AndroidCommands(commands.Commands):
         )
         unsigned_tx = provider_manager.fill_unsigned_tx(chain_code, unsigned_tx)
 
-        if isinstance(self.wallet.get_keystore(), Hardware_KeyStore) and path is not None:
+        if isinstance(self.wallet.get_keystore(), TrezorKeyStore) and path is not None:
+            legacy_keystore: TrezorKeyStore = self.wallet.get_keystore()
+            self._hardware_check_legacy_pair_with(
+                self.wallet.coin, path, legacy_keystore.get_derivation_prefix(), legacy_keystore.xpub
+            )
+
             bip44_path = self.wallet.get_derivation_path(from_address)
             signed_tx = provider_manager.hardware_sign_transaction(
                 chain_code, path, unsigned_tx, {from_address: bip44_path}
@@ -4828,6 +4858,7 @@ class AndroidCommands(commands.Commands):
         sum_fiat = Decimal('0')
         assets = wallet.get_all_balance()
         chain_code = wallet.chain_code
+        address = wallet.get_address()
 
         balances_info = {}
         _sort_helper_dict = {}
@@ -4839,7 +4870,7 @@ class AndroidCommands(commands.Commands):
 
             balance_info = {
                 "coin": asset["symbol"],  # The key is misleading, should be symbol
-                "address": asset["token_address"] or asset["address"],
+                "address": asset["token_address"] or address,
                 "icon": asset["icon"],
                 "balance": balance_with_decimals,
                 "fiat": f"{self.daemon.fx.ccy_amount_str(fiat, True)} {self.ccy}",

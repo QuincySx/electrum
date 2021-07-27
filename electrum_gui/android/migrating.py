@@ -41,7 +41,8 @@ class GeneralWallet(object):
         self._coin = my_db.get("coin")
         self._identity = my_db.get("identity")
         self._balance_info = {}
-        self._address = None
+        self._display_address = None
+        self._normalized_address = None
 
         # Backward compatible
         self.use_change = False
@@ -107,7 +108,7 @@ class GeneralWallet(object):
         return cls(my_db, None, config)
 
     def export_keystore(self, address: str, password: Optional[str]) -> dict:
-        require(address == self.get_address())
+        require(self.is_mine(address))
         return wallet_manager.export_keystore(self.general_wallet_id, password)
 
     @classmethod
@@ -265,17 +266,19 @@ class GeneralWallet(object):
         return wallet_manager.get_default_account_by_wallet(self.general_wallet_id)
 
     def get_address(self) -> str:
-        if self._address is None:
+        if self._display_address is None:
             address = self._get_default_account().address
-            self._address = provider_manager.verify_address(self.chain_code, address).display_address
+            verification = provider_manager.verify_address(self.chain_code, address)
+            self._display_address = verification.display_address
+            self._normalized_address = verification.normalized_address
 
-        return self._address
+        return self._display_address
 
     def get_addresses(self):
         return [self.get_address()]
 
     def get_derivation_path(self, address):
-        require(address == self.get_address())
+        require(self.is_mine(address))
         return self._get_default_account().bip44_path
 
     def ensure_storage(self, path: str):
@@ -454,10 +457,11 @@ class GeneralWallet(object):
         return result[0] if result else None
 
     def is_mine(self, address) -> bool:
-        return address == self.get_address()
+        self.get_address()  # ensure address refs
+        return provider_manager.verify_address(self.chain_code, address).normalized_address == self._normalized_address
 
     def export_private_key(self, address: str, password: Optional[str]) -> str:
-        require(address == self.get_address())
+        require(self.is_mine(address))
         return wallet_manager.export_prvkey(self.general_wallet_id, password)
 
     def create_new_address(self, for_change: bool = False):
