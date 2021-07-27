@@ -255,6 +255,7 @@ class AndroidCommands(commands.Commands):
         self.pre_balance_info = ""
         self.addr_index = 0
         self.rbf_tx = ""
+        self.coins = []
         self.m = 0
         self.n = 0
         self._tokens_dict_of_chain = {}
@@ -4691,7 +4692,7 @@ class AndroidCommands(commands.Commands):
             raise util.FailedToSwitchWallet()
 
         self.wallet = self.daemon.get_wallet(self._wallet_path(name))
-        # self.wallet.use_change = self.config.get("use_change", False)
+        self.wallet.use_change = self.config.get("use_change", False)
         chain_affinity = _get_chain_affinity(self.wallet.coin)
         if is_coin_migrated(self.wallet.coin) and isinstance(self.wallet, GeneralWallet):
             tokens = self.wallet.get_all_token_coins()
