@@ -1,4 +1,5 @@
 import logging
+import os
 import time
 from typing import Dict, Tuple
 
@@ -36,7 +37,9 @@ def _create_client(device: trezor_transport.Transport) -> proxy.HardwareProxyCli
     elif settings.runtime == "android":
         callback = callbacks.AndroidCallback()
     else:
-        callback = callbacks.TerminalCallback(always_prompt=True)
+        callback = callbacks.TerminalCallback(
+            always_prompt=True, pin_on_device=os.environ.get("HARDWARE_PIN_ON_DEVICE") == "True"
+        )
 
     return proxy.HardwareProxyClient(device, callback)
 
