@@ -51,15 +51,13 @@ class BlockBook(ClientInterface, SearchTransactionMixin):
     def get_info(self) -> ClientInfo:
         resp = self.restful.get("/api/v2")
 
-        is_ready = resp["blockbook"].get("inSync") is True
-        if is_ready:
-            normalize_last_block_time = _normalize_iso_format(resp["blockbook"]["lastBlockTime"])
+        normalize_last_block_time = _normalize_iso_format(resp["blockbook"]["lastBlockTime"])
 
-            try:
-                last_block_time = datetime.datetime.fromisoformat(normalize_last_block_time).timestamp()
-                is_ready = time.time() - last_block_time < 120
-            except ValueError:
-                pass
+        try:
+            last_block_time = datetime.datetime.fromisoformat(normalize_last_block_time).timestamp()
+            is_ready = time.time() - last_block_time < 120
+        except ValueError:
+            is_ready = False
 
         return ClientInfo(
             name="blockbook",
