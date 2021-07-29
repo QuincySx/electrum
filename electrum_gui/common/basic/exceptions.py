@@ -44,15 +44,15 @@ class InactiveAddress(OneKeyException):
 
 
 class UnsupportedCurrencyCoin(OneKeyException):
-    key = "msg__unsupported_currency_coin"
+    key = "msg__unsupported_coin_types"
 
 
 class NotEnoughFunds(OneKeyException):
-    key = "msg__not_enough_fund"
+    key = "msg__insufficient_funds"
 
 
 class InvalidBip39Seed(OneKeyException):
-    key = "msg__invalid_bip39_seed"
+    key = "msg__Incorrect_bip39_recovery_phrase_format"
 
 
 class UserCancel(OneKeyException):
@@ -96,7 +96,7 @@ class FileAlreadyExist(OneKeyException):
 
 
 class FailedGetTx(OneKeyException):
-    key = "msg__failed_to_get_transaction"
+    key = "msg__failed_to_get_transactions"
 
 
 class BroadcastFailedDueToNetExcept(OneKeyException):
