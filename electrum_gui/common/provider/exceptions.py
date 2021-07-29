@@ -1,5 +1,7 @@
 from typing import Any
 
+from electrum_gui.common.basic import exceptions
+
 
 class TransactionNotFound(Exception):
     def __init__(self, txid: str):
@@ -47,3 +49,10 @@ class TransactionGasLimitExceeded(UnknownBroadcastError):
 class FailedToGetGasPrices(Exception):
     def __init__(self):
         super(FailedToGetGasPrices, self).__init__("Failed to get gas prices.")
+
+
+class InsufficientBalance(exceptions.OneKeyException):
+    key = "msg__insufficient_balance"
+
+    def __init__(self):
+        super(InsufficientBalance, self).__init__("Insufficient funds")

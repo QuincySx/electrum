@@ -6,6 +6,7 @@ _MAPPING = {
     "transaction underpriced": exceptions.TransactionUnderpriced,
     "gas too low": exceptions.TransactionGasTooLow,
     "gas limit exceeded": exceptions.TransactionGasLimitExceeded,
+    "insufficient funds": exceptions.InsufficientBalance,
 }
 
 
