@@ -2643,6 +2643,23 @@ class AndroidCommands(commands.Commands):
         return self._get_action_result(coin, contract_address, data)
 
     @api.api_entry(force_version=api.Version.V2)
+    def get_main_coin_balance(self, coin: str, address: str) -> Any:
+        """
+        Get main coin balance
+        :param coin: chain code
+        :param address: contract address
+        :return:
+
+        exp:
+            testcommond.get_main_coin_balance_for_evm_chain("eth", "0xb9d2350C7B35455364e3a31487debd9D71dcD127")
+            return data:
+                '{"other_info": "", "status": 0, "info": 4916000000000000, "api_version": 2}'
+        """
+        chain_code = coin_manager.legacy_coin_to_chain_code(coin)
+        address = provider_manager.verify_address(chain_code, address).normalized_address
+        return provider_manager.get_balance(chain_code, address)
+
+    @api.api_entry(force_version=api.Version.V2)
     def get_tx_status_by_txid(self, txid: str, coin: str) -> str:
         """
         Get transaction status based on txid
