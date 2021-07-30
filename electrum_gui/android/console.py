@@ -2438,7 +2438,7 @@ class AndroidCommands(commands.Commands):
         token_dict = self._load_tokens_dict(chain_code)
         top_50_tokens = set(itertools.islice(token_dict.keys(), 50))
         db_token_coins = coin_manager.get_coins_by_chain(chain_code)
-        custom_token_coins = (i for i in db_token_coins if i.token_address not in top_50_tokens)
+        custom_token_coins = (i for i in db_token_coins if i.token_address and i.token_address not in top_50_tokens)
         custom_token_info_list = [
             {
                 "chain_id": coin_manager.get_chain_info(chain_code).chain_id,
