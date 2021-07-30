@@ -1895,6 +1895,10 @@ class AndroidCommands(commands.Commands):
 
     def _get_general_tx_info(self, tx_hash) -> str:
         chain_code = self.wallet.coin
+
+        if transaction_manager.has_actions_by_txid(chain_code, tx_hash):
+            return self._get_general_tx_info_from_transaction_manager(chain_code, tx_hash)
+
         __, transfer_coin, fee_coin = coin_manager.get_related_coins(chain_code)
 
         fee_coin_price = price_manager.get_last_price(fee_coin.code, self.ccy)
@@ -1943,6 +1947,77 @@ class AndroidCommands(commands.Commands):
             'tx': transaction.raw_tx,
         }
 
+        return json.dumps(ret, cls=json_encoders.DecimalEncoder)
+
+    def _get_general_tx_info_from_transaction_manager(self, chain_code: str, txid: str) -> str:
+        actions = transaction_manager.query_actions_by_txid(chain_code, txid)
+        focus_action = actions[0] if actions else None
+        require(focus_action is not None)
+
+        if focus_action.status == transaction_data.TxActionStatus.PENDING:
+            try:
+                transaction_manager.update_pending_actions(chain_code=chain_code, txid=txid)
+            except Exception as e:
+                log_info.exception(
+                    f"Illegal in updating pending actions. chain_code: {chain_code}, txid: {txid}, error: {e}"
+                )
+            else:
+                focus_action = transaction_manager.get_action_by_id(focus_action.id)
+
+        __, transfer_coin, fee_coin = coin_manager.get_related_coins(focus_action.coin_code)
+
+        fee_coin_price = price_manager.get_last_price(fee_coin.code, self.ccy)
+
+        if focus_action.status == transaction_data.TxActionStatus.CONFIRM_REVERTED:
+            tx_status = {"status": transaction_data.TxActionStatus.CONFIRM_REVERTED, "other_info": ""}
+            show_status = [transaction_data.TxActionStatus.CONFIRM_REVERTED, _("Sending failure")]
+        elif focus_action.status == transaction_data.TxActionStatus.CONFIRM_SUCCESS:
+            tx_status = {"status": transaction_data.TxActionStatus.CONFIRM_SUCCESS, "other_info": ""}
+            if focus_action.block_number is not None and focus_action.block_number > 0:
+                try:
+                    best_block_number = provider_manager.get_best_block_number(chain_code)
+                except Exception as e:
+                    log_info.exception(f"Error in get_best_block_number. chain_code: {chain_code}, error: {e}")
+                    best_block_number = 0
+
+                tx_status["other_info"] = (
+                    max(0, best_block_number - focus_action.block_number) if best_block_number > 0 else 0
+                )
+            show_status = [transaction_data.TxActionStatus.CONFIRM_SUCCESS, _("Confirmed")]
+        else:
+            tx_status = {"status": transaction_data.TxActionStatus.PENDING, "other_info": ""}
+            show_status = [transaction_data.TxActionStatus.PENDING, _("Unconfirmed")]
+
+        amount = Decimal(focus_action.value) / pow(10, transfer_coin.decimals)
+        fee = (
+            (focus_action.fee_used or focus_action.fee_limit)
+            * focus_action.fee_price_per_unit
+            / pow(10, fee_coin.decimals)
+        )
+        display_amount = (
+            f"{amount.normalize():f} {transfer_coin.symbol} "
+            f"({self.daemon.fx.ccy_amount_str(amount * fee_coin_price, True)} {self.ccy})"
+        )
+        display_fee = (
+            f"{fee.normalize():f} {fee_coin.symbol} "
+            f"({self.daemon.fx.ccy_amount_str(fee * fee_coin_price, True)} {self.ccy})"
+        )
+
+        ret = {
+            "txid": txid,
+            "can_broadcast": False,
+            "amount": display_amount,
+            "fee": display_fee,
+            "description": "",
+            'tx_status': tx_status,
+            "show_status": show_status,
+            'sign_status': None,
+            'output_addr': [focus_action.to_address],
+            'input_addr': [focus_action.from_address],
+            'height': focus_action.block_number or 0,
+            'cosigner': [],
+            'tx': "",
+        }
         return json.dumps(ret, cls=json_encoders.DecimalEncoder)
 
     def _get_card(self, tx_hash, tx_mined_status, delta, fee, balance):

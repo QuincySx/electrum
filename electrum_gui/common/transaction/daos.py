@@ -215,11 +215,13 @@ def query_actions_by_status(
     status: TxActionStatus,
     chain_code: str = None,
     address: str = None,
+    txid: str = None,
 ) -> List[TxAction]:
     expressions = [TxAction.status == status]
 
     chain_code is None or expressions.append(TxAction.chain_code == chain_code)
     address is None or expressions.append(TxAction.from_address == address or TxAction.to_address == address)
+    txid is None or expressions.append(TxAction.txid == txid)
 
     models = TxAction.select().where(*expressions)
     return list(models)
@@ -234,3 +236,7 @@ def delete_actions_by_addresses(chain_code: str, addresses: List[str]) -> int:
         )
         .execute()
     )
+
+
+def has_actions_by_txid(chain_code: str, txid: str) -> bool:
+    return TxAction.select().where(TxAction.chain_code == chain_code, TxAction.txid == txid).count() > 0
