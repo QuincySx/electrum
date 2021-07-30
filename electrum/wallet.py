@@ -1128,10 +1128,16 @@ class Abstract_Wallet(AddressSynchronizer, ABC):
                 status = 2  # not SPV verified
         else:
             status = 3 + min(conf, 6)
-        time_str = format_time(timestamp) if timestamp else _("unknown")
-        status_str = TX_STATUS[status] if status < 4 else time_str
-        if extra:
-            status_str += ' [%s]' % (', '.join(extra))
+
+        if status < 4 or timestamp is None:
+            status_str = ""
+            status_to_log = TX_STATUS[status] if status < 4 else "unknown"
+            if extra:
+                status_to_log += ' [%s]' % (', '.join(extra))
+            self.logger.info(f"Dropping not timeinfo status {status_to_log}.")
+        else:
+            status_str = format_time(timestamp)
+
         return status, status_str
 
     def relayfee(self):
