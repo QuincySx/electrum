@@ -2130,9 +2130,9 @@ class AndroidCommands(commands.Commands):
                             "encoding": validation.encoding,
                         }
                     )
-            except Exception as e:
+            except Exception:
                 log_info.exception(
-                    f"Error in verify address. chain_code: {chain.chain_code}, maybe_address: {maybe_address}", e
+                    f"Error in verify address. chain_code: {chain.chain_code}, maybe_address: {maybe_address}"
                 )
 
         if not selection:
@@ -2181,8 +2181,8 @@ class AndroidCommands(commands.Commands):
         """
         try:
             address_v2_result = self._parse_address_v2(data)
-        except Exception as e:
-            log_info.exception(f"Error in parse data as address v2. data: {data}", e)
+        except Exception:
+            log_info.exception(f"Error in parse data as address v2. data: {data}")
             address_v2_result = None
 
         add_status_flag = False
@@ -2194,15 +2194,15 @@ class AndroidCommands(commands.Commands):
             try:
                 add_data = self._parse_address(data)
                 add_status_flag = True
-            except BaseException as e:
-                log_info.exception(f"Error in parse data as address. data: {data}", e)
+            except BaseException:
+                log_info.exception(f"Error in parse data as address. data: {data}")
                 add_status_flag = False
 
             try:
                 tx_data = self._parse_tx(data)
                 tx_status_flag = True
-            except BaseException as e:
-                log_info.exception(f"Error in parse data as tx. data: {data}", e)
+            except BaseException:
+                log_info.exception(f"Error in parse data as tx. data: {data}")
                 tx_status_flag = False
 
         result = {}

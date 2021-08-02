@@ -24,8 +24,8 @@ def verify_key(curve: CurveEnum, prvkey: bytes = None, pubkey: bytes = None):
         ins = registry.key_class_on_curve(curve).from_key(prvkey=prvkey, pubkey=pubkey)
         if ins.has_prvkey():
             _verify_signing_process(ins)
-    except Exception as e:
-        logger.exception("Error in verify key.", e)
+    except Exception:
+        logger.exception("Error in verify key.")
         raise ValueError(f"Illegal pubkey. curve: {curve.name}, pubkey: {pubkey.hex()}")
 
 
@@ -34,8 +34,8 @@ def _verify_hd_wif_key(curve: CurveEnum, xkey: str):
         node = registry.bip32_class_on_curve(curve).from_hd_wif(xkey)
         if node.has_prvkey():
             _verify_signing_process(node.prvkey_interface, node.pubkey_interface)
-    except Exception as e:
-        logger.exception("Error in verify hd wif key.", e)
+    except Exception:
+        logger.exception("Error in verify hd wif key.")
         error_message = f"Illegal hd wif key. curve: {curve.name}"
         if xkey.startswith("xpub"):
             error_message += f", xpub: {xkey}"
@@ -52,8 +52,8 @@ def _verify_master_seed(master_seed: bytes):
     try:
         node = registry.bip32_class_on_curve(CurveEnum.SECP256K1).from_master_seed(master_seed)
         _verify_signing_process(node.prvkey_interface, node.pubkey_interface)
-    except Exception as e:
-        logger.exception("Error in verify master seed.", e)
+    except Exception:
+        logger.exception("Error in verify master seed.")
         raise ValueError(f"Illegal master seed. curve: {curve.name}")
 
 
