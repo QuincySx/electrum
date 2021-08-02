@@ -1003,7 +1003,7 @@ class AndroidCommands(commands.Commands):
             out_info = [
                 # Assuming all needed data are present
                 self._format_return_data(fee_info_list.get(block), out_size_p2pkh, block)
-                for block in (2, 5, 10)
+                for block in (5, 2, 1)
             ]
         else:
             block = helpers.get_best_block_by_feerate(float(feerate) * 1000, fee_info_list)
