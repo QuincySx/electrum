@@ -77,19 +77,19 @@ class Coingecko(PriceChannelInterface):
     def pricing(self, coins: Iterable[CoinInfo]) -> Iterable[YieldedPrice]:
         try:
             yield from self.fetch_btc_to_fiats()
-        except Exception as e:
-            logger.exception("Error in fetching fiat rate of btc.", e)
+        except Exception:
+            logger.exception("Error in fetching fiat rate of btc.")
 
         cgk_ids = chains_conf.get_coingecko_ids()
         if cgk_ids:
             try:
                 yield from self.fetch_cgk_ids_to_currency(cgk_ids, currency=codes.BTC)
-            except Exception as e:
-                logger.exception("Error in fetching btc rate of config cgk ids.", e)
+            except Exception:
+                logger.exception("Error in fetching btc rate of config cgk ids.")
 
         erc20_coins = [coin for coin in coins if coin.token_address and coin.chain_code == codes.ETH]
         if erc20_coins:
             try:
                 yield from self.fetch_erc20_to_currency(erc20_coins, currency=codes.BTC)
-            except Exception as e:
-                logger.exception("Error in fetching btc rate of erc20.", e)
+            except Exception:
+                logger.exception("Error in fetching btc rate of erc20.")

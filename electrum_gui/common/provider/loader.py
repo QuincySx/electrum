@@ -47,11 +47,10 @@ def _load_clients_by_chain(chain_code: str) -> Iterable[ClientInterface]:
         try:
             instance = client_classes[class_name](**instantiate_params)
             clients.append(instance)
-        except Exception as e:
+        except Exception:
             logger.exception(
                 f"Something wrong in creating the {chain_code} instance of <{class_name}> "
-                f"with kwargs: ({instantiate_params}).",
-                e,
+                f"with kwargs: ({instantiate_params})."
             )
 
     _CLIENTS[chain_code] = clients

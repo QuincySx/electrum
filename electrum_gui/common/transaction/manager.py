@@ -86,8 +86,8 @@ def update_pending_actions(chain_code: Optional[str] = None, address: Optional[s
             logger.info(
                 f"TxAction confirmed. chain_code: {chain_code}, txid: {tx.txid}, action_status: {action_status}"
             )
-        except Exception as e:
-            logger.exception(f"Error in updating actions. chain_code: {chain_code}, txid: {tx.txid}", e, tx)
+        except Exception:
+            logger.exception(f"Error in updating actions. chain_code: {chain_code}, txid: {tx.txid}")
 
     unconfirmed_actions = [i for i in pending_actions if i.txid not in confirmed_txids]
     if not unconfirmed_actions:
@@ -109,8 +109,8 @@ def _query_transactions_of_chain(txids_of_chain: Iterable[Tuple[str, str]]) -> I
         for (_, txid) in group:
             try:
                 yield chain_code, provider_manager.get_transaction_by_txid(chain_code, txid)
-            except Exception as e:
-                logger.exception(f"Error in getting transaction by txid. chain_code: {chain_code}, txid: {txid}", e)
+            except Exception:
+                logger.exception(f"Error in getting transaction by txid. chain_code: {chain_code}, txid: {txid}")
 
 
 def _search_txs_by_address(
@@ -125,11 +125,10 @@ def _search_txs_by_address(
         transactions = provider_manager.search_txs_by_address(chain_code, address, paginate=paginate)
 
         return transactions
-    except Exception as e:
+    except Exception:
         logger.exception(
             f"Error in searching txs by address. chain_code: {chain_code}, "
-            f"address: {address}, last_confirmed_action: {last_confirmed_action}",
-            e,
+            f"address: {address}, last_confirmed_action: {last_confirmed_action}"
         )
         return []
 
@@ -210,12 +209,11 @@ def _search_actions_from_provider_by_address(
 
     try:
         transactions = provider_manager.search_txs_by_address(chain_code, address, paginate=paginate)
-    except Exception as e:
+    except Exception:
         transactions = []
         logger.exception(
             f"Error in searching txs by address form provider. "
-            f"chain_code: {chain_code}, address: {address}, paginate: {paginate}",
-            e,
+            f"chain_code: {chain_code}, address: {address}, paginate: {paginate}"
         )
 
     transactions = (i for i in transactions if i.status in TX_TO_ACTION_STATUS_DIRECT_MAPPING)

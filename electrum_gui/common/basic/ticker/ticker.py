@@ -19,8 +19,8 @@ class Ticker(Timer):
         try:
             with timing_logger(f"ticker.send_signal by {self._signal}"):
                 self._signal.send()
-        except Exception as e:
-            logger.exception(f"Error in sending signal. signal: {self._signal}", e)
+        except Exception:
+            logger.exception(f"Error in sending signal. signal: {self._signal}")
 
     def run(self):
         while not self.finished.is_set():
