@@ -1980,9 +1980,7 @@ class AndroidCommands(commands.Commands):
                     log_info.exception(f"Error in get_best_block_number. chain_code: {chain_code}, error: {e}")
                     best_block_number = 0
 
-                tx_status["other_info"] = (
-                    max(0, best_block_number - focus_action.block_number) if best_block_number > 0 else 0
-                )
+                tx_status["other_info"] = max(0, best_block_number - focus_action.block_number)
             show_status = [transaction_data.TxActionStatus.CONFIRM_SUCCESS, _("Confirmed")]
         else:
             tx_status = {"status": transaction_data.TxActionStatus.PENDING, "other_info": ""}
@@ -2840,19 +2838,41 @@ class AndroidCommands(commands.Commands):
                 chain_code, path, unsigned_tx, {from_address: bip44_path}
             )
             signed_tx_hex = signed_tx.raw_tx
+            txid = signed_tx.txid
         else:
             signer = helpers.EthSoftwareSigner(self.wallet, password)
             signed_tx = provider_manager.sign_transaction(chain_code, unsigned_tx, {from_address: signer})
+            txid = signed_tx.txid
             signed_tx_hex = signed_tx.raw_tx
+
+        has_broadcasted = False
 
         if signed_tx_hex is not None and auto_send_tx:
             try:
                 receipt = provider_manager.broadcast_transaction(chain_code, signed_tx_hex)
             except provider_exceptions.TransactionAlreadyKnown:
-                return None
-            return receipt.txid
+                has_broadcasted = True
+            else:
+                require(receipt.is_success is True, "Broadcasting failed")
+                has_broadcasted = True
 
-        return signed_tx_hex
+        transaction_manager.create_action(
+            txid=txid,
+            status=transaction_data.TxActionStatus.PENDING
+            if has_broadcasted
+            else transaction_data.TxActionStatus.SIGNED,
+            chain_code=chain_code,
+            coin_code=coin.code,
+            value=Decimal(value),
+            from_address=unsigned_tx.inputs[0].address,
+            to_address=unsigned_tx.outputs[0].address,
+            fee_limit=Decimal(unsigned_tx.fee_limit),
+            fee_price_per_unit=unsigned_tx.fee_price_per_unit,
+            nonce=-1 if unsigned_tx.nonce is None else unsigned_tx.nonce,
+            raw_tx=signed_tx_hex,
+        )
+
+        return txid if has_broadcasted else signed_tx_hex
 
     @api.api_entry()
     def dapp_eth_sign_tx(
@@ -2928,9 +2948,22 @@ class AndroidCommands(commands.Commands):
         chain_code = self.wallet.coin
         try:
             receipt = provider_manager.broadcast_transaction(chain_code, tx_hex)
+            txid = receipt.txid
+            has_broadcasted = receipt.is_success
         except provider_exceptions.TransactionAlreadyKnown:
-            return None
-        return receipt.txid
+            txid = None
+            has_broadcasted = True
+
+        if txid:
+            transaction_manager.update_action_status(
+                chain_code,
+                txid,
+                transaction_data.TxActionStatus.PENDING
+                if has_broadcasted
+                else transaction_data.TxActionStatus.UNEXPECTED_FAILED,
+            )
+
+        return txid if has_broadcasted else None
 
     @api.api_entry()
     def dapp_eth_rpc_info(self):
