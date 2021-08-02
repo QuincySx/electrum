@@ -3,10 +3,12 @@ import decimal
 from unittest import TestCase
 from unittest.mock import Mock, call, patch
 
+from electrum_gui.common.basic import bip44
 from electrum_gui.common.basic.orm import test_utils
 from electrum_gui.common.coin import data as coin_data
 from electrum_gui.common.coin import models as coin_models
 from electrum_gui.common.provider import data as provider_data
+from electrum_gui.common.secret import data as secret_data
 from electrum_gui.common.secret import exceptions as secret_exceptions
 from electrum_gui.common.secret import models as secret_models
 from electrum_gui.common.transaction import data as transaction_data
@@ -35,6 +37,74 @@ class TestWalletManager(TestCase):
         cls.mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         cls.passphrase = "OneKey"
 
+    def setUp(self) -> None:
+        # Add needed mock data for these tests.
+        # TODO: this should be remove when the tests are changed to real unit tests, now these tests are more functional.
+        chains = {
+            "btc": Mock(
+                chain_code="btc",
+                curve=secret_data.CurveEnum.SECP256K1,
+                chain_affinity="btc",
+                bip44_coin_type=0,
+                bip44_target_level=bip44.BIP44Level.ADDRESS_INDEX,
+                bip44_auto_increment_level=bip44.BIP44Level.ACCOUNT,
+                bip44_last_hardened_level=bip44.BIP44Level.ACCOUNT,
+                default_address_encoding="P2WPKH-P2SH",
+                bip44_purpose_options={"P2PKH": 44, "P2WPKH-P2SH": 49, "P2WPKH": 84},
+            ),
+            "eth": Mock(
+                chain_code="eth",
+                curve=secret_data.CurveEnum.SECP256K1,
+                chain_affinity="eth",
+                bip44_coin_type=60,
+                bip44_target_level=bip44.BIP44Level.ADDRESS_INDEX,
+                bip44_auto_increment_level=bip44.BIP44Level.ADDRESS_INDEX,
+                bip44_last_hardened_level=bip44.BIP44Level.ACCOUNT,
+                default_address_encoding=None,
+                bip44_purpose_options={},
+            ),
+            "stc": Mock(
+                curve=secret_data.CurveEnum.ED25519,
+                chain_affinity="stc",
+                bip44_coin_type=101010,
+                bip44_target_level=bip44.BIP44Level.ADDRESS_INDEX,
+                bip44_last_hardened_level=bip44.BIP44Level.ADDRESS_INDEX,
+                default_address_encoding="HEX",
+                bip44_purpose_options={},
+            ),
+            "sol": Mock(
+                bip44_coin_type=501,
+                bip44_target_level=bip44.BIP44Level.CHANGE,
+                bip44_last_hardened_level=bip44.BIP44Level.CHANGE,
+                default_address_encoding=None,
+                bip44_purpose_options={},
+            ),
+            "bsc": Mock(
+                chain_code="bsc",
+                bip44_coin_type=60,
+                bip44_target_level=bip44.BIP44Level.ADDRESS_INDEX,
+                bip44_auto_increment_level=bip44.BIP44Level.ADDRESS_INDEX,
+                bip44_last_hardened_level=bip44.BIP44Level.ACCOUNT,
+                default_address_encoding=None,
+                bip44_purpose_options={},
+            ),
+        }
+        coins = [
+            Mock(code="btc", symbol="BTC", decimals=8, icon=None, token_address=None),
+            Mock(code="eth", symbol="ETH", decimals=18, icon=None, token_address=None),
+        ]
+        get_chain_info_mock = patch(
+            "electrum_gui.common.coin.manager.get_chain_info", side_effect=lambda chain_code: chains.get(chain_code)
+        )
+        get_chain_info_mock.start()
+        self.addCleanup(get_chain_info_mock.stop)
+        query_coins_mock = patch(
+            "electrum_gui.common.coin.manager.query_coins_by_codes",
+            side_effect=lambda coin_codes_to_query: [coin for coin in coins if coin.code in coin_codes_to_query],
+        )
+        query_coins_mock.start()
+        self.addCleanup(query_coins_mock.stop)
+
     def test_import_watchonly_wallet_by_address__eth(self):
         wallet_info = wallet_manager.import_watchonly_wallet_by_address(
             "ETH_WATCHONLY", "eth", "0x8Be73940864fD2B15001536E76b3ECcd85a80a5d"
@@ -48,7 +118,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'eth',
                         'decimals': 18,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'ETH',
                         'token_address': None,
@@ -73,7 +143,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'btc',
                         'decimals': 8,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/btc/BTC.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'BTC',
                         'token_address': None,
@@ -100,7 +170,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'eth',
                         'decimals': 18,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'ETH',
                         'token_address': None,
@@ -129,7 +199,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'eth',
                         'decimals': 18,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'ETH',
                         'token_address': None,
@@ -159,7 +229,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'eth',
                         'decimals': 18,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'ETH',
                         'token_address': None,
@@ -192,7 +262,7 @@ class TestWalletManager(TestCase):
                             'balance': 0,
                             'coin_code': 'btc',
                             'decimals': 8,
-                            'icon': 'https://onekey.243096.com/onekey/images/token/btc/BTC.png',
+                            'icon': None,
                             'is_visible': True,
                             'symbol': 'BTC',
                             'token_address': None,
@@ -212,7 +282,7 @@ class TestWalletManager(TestCase):
                             'balance': 0,
                             'coin_code': 'eth',
                             'decimals': 18,
-                            'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                            'icon': None,
                             'is_visible': True,
                             'symbol': 'ETH',
                             'token_address': None,
@@ -279,7 +349,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'btc',
                         'decimals': 8,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/btc/BTC.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'BTC',
                         'token_address': None,
@@ -303,7 +373,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'eth',
                         'decimals': 18,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'ETH',
                         'token_address': None,
@@ -327,7 +397,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'btc',
                         'decimals': 8,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/btc/BTC.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'BTC',
                         'token_address': None,
@@ -958,7 +1028,7 @@ class TestWalletManager(TestCase):
                             'balance': 0,
                             'coin_code': 'eth',
                             'decimals': 18,
-                            'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                            'icon': None,
                             'is_visible': True,
                             'symbol': 'ETH',
                             'token_address': None,
@@ -988,7 +1058,7 @@ class TestWalletManager(TestCase):
                             'balance': 0,
                             'coin_code': 'eth',
                             'decimals': 18,
-                            'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                            'icon': None,
                             'is_visible': True,
                             'symbol': 'ETH',
                             'token_address': None,
@@ -1022,7 +1092,7 @@ class TestWalletManager(TestCase):
                         'balance': 0,
                         'coin_code': 'eth',
                         'decimals': 18,
-                        'icon': 'https://onekey.243096.com/onekey/images/token/eth/ETH.png',
+                        'icon': None,
                         'is_visible': True,
                         'symbol': 'ETH',
                         'token_address': None,

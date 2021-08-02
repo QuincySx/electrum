@@ -42,3 +42,6 @@ electrum/*.dll
 electrum/*.dylib
 /*.sqlite
 /local_settings.py
+
+# data
+electrum_gui/common/conf/data/chain_configs.dat

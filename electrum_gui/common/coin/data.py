@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import IntEnum, unique
-from typing import Dict, List, Optional
+from typing import Optional
 
 from electrum_gui.common.basic import bip44
 from electrum_gui.common.basic.dataclass.dataclass import DataClassMixin
@@ -16,7 +16,7 @@ class ChainModel(IntEnum):
 @dataclass
 class ChainInfo(DataClassMixin):
     chain_code: str  # unique chain coin
-    fee_code: str  # which coin is used to provide fee (omni chain uses btc, neo uses neo_gas etc.)
+    fee_coin: str  # which coin is used to provide fee (omni chain uses btc, neo uses neo_gas etc.)
     name: str  # full name of chain
     chain_model: ChainModel  # model of chain (UTXO, Account etc.)
     curve: secret_data.CurveEnum  # curve type
@@ -33,8 +33,6 @@ class ChainInfo(DataClassMixin):
         bip44.BIP44Level.ADDRESS_INDEX
     )  # Derive to 'ADDRESS_INDEX' as default (options: ACCOUNT, CHANGE, ADDRESS_INDEX)
     default_address_encoding: Optional[str] = None
-    clients: List[dict] = field(default_factory=list)  # config of clients
-    dexes: Dict[str, dict] = field(default_factory=dict)  # config of decentralized exchanges
     chain_id: Optional[str] = None  # optional, identify multi forked chains by chain_id (use by eth etc.)
     bip44_purpose_options: dict = field(default_factory=dict)
     fee_price_decimals_for_legibility: int = 0  # (gwei in eth etc.)
