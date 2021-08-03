@@ -201,9 +201,9 @@ class Etherscan(ClientInterface, SearchTransactionMixin):
         if result is None:
             raise FailedToGetGasPrices()
 
-        slow = int(decimal.Decimal(result["SafeGasPrice"]) * 10 ** 9)
-        normal = int(decimal.Decimal(result["ProposeGasPrice"]) * 10 ** 9)
-        fast = int(decimal.Decimal(result["FastGasPrice"]) * 10 ** 9)
+        slow = int(max(decimal.Decimal(result["SafeGasPrice"]), 0.1) * 10 ** 9)
+        normal = int(max(decimal.Decimal(result["ProposeGasPrice"]), 0.1) * 10 ** 9)
+        fast = int(max(decimal.Decimal(result["FastGasPrice"]), 0.1) * 10 ** 9)
 
         return PricesPerUnit(
             normal=EstimatedTimeOnPrice(price=normal, time=180),
