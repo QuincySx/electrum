@@ -178,7 +178,7 @@ class Geth(ClientInterface, BatchGetAddressMixin):
         except JsonRPCException:
             raise FailedToGetGasPrices()
 
-        min_wei = int(1e9)
+        min_wei = int(1e8)
         slow = int(max(_hex2int(resp), min_wei))
         normal = int(max(slow * 1.25, min_wei))
         fast = int(max(slow * 1.5, min_wei))

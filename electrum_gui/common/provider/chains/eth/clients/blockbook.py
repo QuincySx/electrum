@@ -236,7 +236,7 @@ class BlockBook(ClientInterface, SearchTransactionMixin):
         fast = slow * Decimal(1.5)
 
         to_wei_multiple = Decimal(1e18)
-        min_wei = 1e9
+        min_wei = 1e8
         slow = int(max(slow * to_wei_multiple, min_wei))
         normal = int(max(normal * to_wei_multiple, min_wei))
         fast = int(max(fast * to_wei_multiple, min_wei))
