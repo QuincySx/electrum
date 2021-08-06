@@ -1895,6 +1895,10 @@ class AndroidCommands(commands.Commands):
 
     def _get_general_tx_info(self, tx_hash) -> str:
         chain_code = self.wallet.coin
+
+        if transaction_manager.has_actions_by_txid(chain_code, tx_hash):
+            return self._get_general_tx_info_from_transaction_manager(chain_code, tx_hash)
+
         __, transfer_coin, fee_coin = coin_manager.get_related_coins(chain_code)
 
         fee_coin_price = price_manager.get_last_price(fee_coin.code, self.ccy)
@@ -1943,6 +1947,75 @@ class AndroidCommands(commands.Commands):
             'tx': transaction.raw_tx,
         }
 
+        return json.dumps(ret, cls=json_encoders.DecimalEncoder)
+
+    def _get_general_tx_info_from_transaction_manager(self, chain_code: str, txid: str) -> str:
+        actions = transaction_manager.query_actions_by_txid(chain_code, txid)
+        focus_action = actions[0] if actions else None
+        require(focus_action is not None)
+
+        if focus_action.status == transaction_data.TxActionStatus.PENDING:
+            try:
+                transaction_manager.update_pending_actions(chain_code=chain_code, txid=txid)
+            except Exception as e:
+                log_info.exception(
+                    f"Illegal in updating pending actions. chain_code: {chain_code}, txid: {txid}, error: {e}"
+                )
+            else:
+                focus_action = transaction_manager.get_action_by_id(focus_action.id)
+
+        __, transfer_coin, fee_coin = coin_manager.get_related_coins(focus_action.coin_code)
+
+        fee_coin_price = price_manager.get_last_price(fee_coin.code, self.ccy)
+
+        if focus_action.status == transaction_data.TxActionStatus.CONFIRM_REVERTED:
+            tx_status = {"status": transaction_data.TxActionStatus.CONFIRM_REVERTED, "other_info": ""}
+            show_status = [transaction_data.TxActionStatus.CONFIRM_REVERTED, _("Sending failure")]
+        elif focus_action.status == transaction_data.TxActionStatus.CONFIRM_SUCCESS:
+            tx_status = {"status": transaction_data.TxActionStatus.CONFIRM_SUCCESS, "other_info": ""}
+            if focus_action.block_number is not None and focus_action.block_number > 0:
+                try:
+                    best_block_number = provider_manager.get_best_block_number(chain_code)
+                except Exception as e:
+                    log_info.exception(f"Error in get_best_block_number. chain_code: {chain_code}, error: {e}")
+                    best_block_number = 0
+
+                tx_status["other_info"] = max(0, best_block_number - focus_action.block_number)
+            show_status = [transaction_data.TxActionStatus.CONFIRM_SUCCESS, _("Confirmed")]
+        else:
+            tx_status = {"status": transaction_data.TxActionStatus.PENDING, "other_info": ""}
+            show_status = [transaction_data.TxActionStatus.PENDING, _("Unconfirmed")]
+
+        amount = Decimal(focus_action.value) / pow(10, transfer_coin.decimals)
+        fee = (
+            (focus_action.fee_used or focus_action.fee_limit)
+            * focus_action.fee_price_per_unit
+            / pow(10, fee_coin.decimals)
+        )
+        display_amount = (
+            f"{amount.normalize():f} {transfer_coin.symbol} "
+            f"({self.daemon.fx.ccy_amount_str(amount * fee_coin_price, True)} {self.ccy})"
+        )
+        display_fee = (
+            f"{fee.normalize():f} {fee_coin.symbol} "
+            f"({self.daemon.fx.ccy_amount_str(fee * fee_coin_price, True)} {self.ccy})"
+        )
+
+        ret = {
+            "txid": txid,
+            "can_broadcast": False,
+            "amount": display_amount,
+            "fee": display_fee,
+            "description": "",
+            'tx_status': tx_status,
+            "show_status": show_status,
+            'sign_status': None,
+            'output_addr': [focus_action.to_address],
+            'input_addr': [focus_action.from_address],
+            'height': focus_action.block_number or 0,
+            'cosigner': [],
+            'tx': "",
+        }
         return json.dumps(ret, cls=json_encoders.DecimalEncoder)
 
     def _get_card(self, tx_hash, tx_mined_status, delta, fee, balance):
@@ -2765,19 +2838,41 @@ class AndroidCommands(commands.Commands):
                 chain_code, path, unsigned_tx, {from_address: bip44_path}
             )
             signed_tx_hex = signed_tx.raw_tx
+            txid = signed_tx.txid
         else:
             signer = helpers.EthSoftwareSigner(self.wallet, password)
             signed_tx = provider_manager.sign_transaction(chain_code, unsigned_tx, {from_address: signer})
+            txid = signed_tx.txid
             signed_tx_hex = signed_tx.raw_tx
+
+        has_broadcasted = False
 
         if signed_tx_hex is not None and auto_send_tx:
             try:
                 receipt = provider_manager.broadcast_transaction(chain_code, signed_tx_hex)
             except provider_exceptions.TransactionAlreadyKnown:
-                return None
-            return receipt.txid
+                has_broadcasted = True
+            else:
+                require(receipt.is_success is True, "Broadcasting failed")
+                has_broadcasted = True
 
-        return signed_tx_hex
+        transaction_manager.create_action(
+            txid=txid,
+            status=transaction_data.TxActionStatus.PENDING
+            if has_broadcasted
+            else transaction_data.TxActionStatus.SIGNED,
+            chain_code=chain_code,
+            coin_code=coin.code,
+            value=Decimal(value),
+            from_address=unsigned_tx.inputs[0].address,
+            to_address=unsigned_tx.outputs[0].address,
+            fee_limit=Decimal(unsigned_tx.fee_limit),
+            fee_price_per_unit=unsigned_tx.fee_price_per_unit,
+            nonce=-1 if unsigned_tx.nonce is None else unsigned_tx.nonce,
+            raw_tx=signed_tx_hex,
+        )
+
+        return txid if has_broadcasted else signed_tx_hex
 
     @api.api_entry()
     def dapp_eth_sign_tx(
@@ -2853,9 +2948,22 @@ class AndroidCommands(commands.Commands):
         chain_code = self.wallet.coin
         try:
             receipt = provider_manager.broadcast_transaction(chain_code, tx_hex)
+            txid = receipt.txid
+            has_broadcasted = receipt.is_success
         except provider_exceptions.TransactionAlreadyKnown:
-            return None
-        return receipt.txid
+            txid = None
+            has_broadcasted = True
+
+        if txid:
+            transaction_manager.update_action_status(
+                chain_code,
+                txid,
+                transaction_data.TxActionStatus.PENDING
+                if has_broadcasted
+                else transaction_data.TxActionStatus.UNEXPECTED_FAILED,
+            )
+
+        return txid if has_broadcasted else None
 
     @api.api_entry()
     def dapp_eth_rpc_info(self):

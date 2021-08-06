@@ -59,8 +59,25 @@ def update_action_status(
     daos.update_actions_status(chain_code, txid, status)
 
 
-def update_pending_actions(chain_code: Optional[str] = None, address: Optional[str] = None):
-    pending_actions = daos.query_actions_by_status(TxActionStatus.PENDING, chain_code=chain_code, address=address)
+def has_actions_by_txid(chain_code: str, txid: str) -> bool:
+    return daos.has_actions_by_txid(chain_code, txid)
+
+
+def query_actions_by_txid(chain_code: str, txid: str) -> List[TxAction]:
+    return daos.query_actions_by_txid(chain_code, txid)
+
+
+def update_pending_actions(
+    chain_code: Optional[str] = None,
+    address: Optional[str] = None,
+    txid: Optional[str] = None,
+):
+    pending_actions = daos.query_actions_by_status(
+        TxActionStatus.PENDING,
+        chain_code=chain_code,
+        address=address,
+        txid=txid,
+    )
 
     if not pending_actions:
         return
