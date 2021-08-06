@@ -36,6 +36,7 @@ CHAIN_IMPLS = {
             "P2WPKH": 84,
         },
         "fee_price_decimals_for_legibility": 0,
+        "nonce_supported": False,
     },
     "evm": {
         "chain_model": "account",
@@ -48,6 +49,7 @@ CHAIN_IMPLS = {
         "default_address_encoding": None,
         "bip44_purpose_options": {},
         "fee_price_decimals_for_legibility": 9,
+        "nonce_supported": True,
     },
     "stc": {
         "chain_model": "account",
@@ -60,6 +62,7 @@ CHAIN_IMPLS = {
         "default_address_encoding": "HEX",
         "bip44_purpose_options": {},
         "fee_price_decimals_for_legibility": 0,
+        "nonce_supported": True,
     },
     "sol": {
         "chain_model": "account",
@@ -72,6 +75,7 @@ CHAIN_IMPLS = {
         "default_address_encoding": None,
         "bip44_purpose_options": {},
         "fee_price_decimals_for_legibility": 0,
+        "nonce_supported": False,
     },
     "cfx": {
         "chain_model": "account",
@@ -84,6 +88,7 @@ CHAIN_IMPLS = {
         "default_address_encoding": None,
         "bip44_purpose_options": {},
         "fee_price_decimals_for_legibility": 0,
+        "nonce_supported": True,
     },
 }
 
@@ -480,6 +485,7 @@ def get_added_chains(existing_chain_codes: Set[str]) -> List[Dict]:
             "chain_id": chain_settings["chain_id"],
             "bip44_purpose_options": chain_settings["bip44_purpose_options"],
             "fee_price_decimals_for_legibility": chain_settings["fee_price_decimals_for_legibility"],
+            "nonce_supported": chain_settings["nonce_supported"],
         }
         ret.append(added_chain)
 
