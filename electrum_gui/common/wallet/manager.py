@@ -997,7 +997,7 @@ def sign_message(
         hardware_key_id = hardware_manager.get_key_id(hardware_device_path)
         require(hardware_key_id == wallet.hardware_key_id, exceptions.IllegalWalletOperation("Device mismatch"))
         return provider_manager.hardware_sign_message(
-            wallet.chain_code, hardware_device_path, account.bip44_path, message
+            wallet.chain_code, hardware_device_path, message, account.bip44_path
         )
     else:
         raise ValueError(f"Illegal wallet_type: {wallet_type}")
