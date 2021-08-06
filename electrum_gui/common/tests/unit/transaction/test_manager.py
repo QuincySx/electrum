@@ -8,13 +8,15 @@ import peewee
 from electrum_gui.common.basic.orm import test_utils
 from electrum_gui.common.coin import data as coin_data
 from electrum_gui.common.provider import data as provider_data
+from electrum_gui.common.provider import exceptions as provider_exceptions
 from electrum_gui.common.transaction import daos, data, manager, models
 
 
 @test_utils.cls_test_database(models.TxAction)
 class TestTransactionManager(TestCase):
+    @patch("electrum_gui.common.transaction.manager.coin_manager")
     @patch("electrum_gui.common.transaction.manager.provider_manager")
-    def test_update_pending_actions(self, fake_provider_manager):
+    def test_update_pending_actions(self, fake_provider_manager, fake_coin_manager):
         # prepare data
         daos.bulk_create(
             [
@@ -70,6 +72,32 @@ class TestTransactionManager(TestCase):
                     nonce=3,
                     raw_tx="",
                 ),
+                daos.new_action(
+                    txid="txid_d",
+                    status=data.TxActionStatus.PENDING,
+                    chain_code="eth",
+                    coin_code="eth",
+                    value=decimal.Decimal(10),
+                    from_address="address_a",
+                    to_address="address_b",
+                    fee_limit=decimal.Decimal(1000),
+                    fee_price_per_unit=decimal.Decimal(10),
+                    nonce=11,
+                    raw_tx="",
+                ),
+                daos.new_action(
+                    txid="txid_e",
+                    status=data.TxActionStatus.PENDING,
+                    chain_code="eth",
+                    coin_code="eth",
+                    value=decimal.Decimal(11),
+                    from_address="address_a",
+                    to_address="address_b",
+                    fee_limit=decimal.Decimal(1000),
+                    fee_price_per_unit=decimal.Decimal(15),
+                    nonce=11,
+                    raw_tx="",
+                ),
             ]
         )
 
@@ -79,26 +107,37 @@ class TestTransactionManager(TestCase):
             models.TxAction.id == tx_bsc.id
         ).execute()
 
-        fake_provider_manager.get_transaction_by_txid.side_effect = lambda i, j: {
-            "eth": provider_data.Transaction(
-                txid="txid_a",
-                status=provider_data.TransactionStatus.CONFIRM_SUCCESS,
-                fee=provider_data.TransactionFee(limit=1000, used=900, price_per_unit=20),
-                block_header=provider_data.BlockHeader(
-                    block_hash="block_a", block_number=1001, block_time=1600000000, confirmations=3
+        fake_coin_manager.get_chain_info.return_value = Mock(
+            chain_model=coin_data.ChainModel.ACCOUNT, nonce_supported=True
+        )
+
+        def _fake_get_transaction_by_txid(chain_code, txid):
+            if txid not in ("txid_a", "txid_b", "txid_c"):
+                raise provider_exceptions.TransactionNotFound(txid)
+            return {
+                "eth": provider_data.Transaction(
+                    txid="txid_a",
+                    status=provider_data.TransactionStatus.CONFIRM_SUCCESS,
+                    fee=provider_data.TransactionFee(limit=1000, used=900, price_per_unit=20),
+                    block_header=provider_data.BlockHeader(
+                        block_hash="block_a", block_number=1001, block_time=1600000000, confirmations=3
+                    ),
                 ),
-            ),
-            "bsc": provider_data.Transaction(
-                txid="txid_b",
-                status=provider_data.TransactionStatus.PENDING,
-            ),
-            "heco": provider_data.Transaction(
-                txid="txid_c",
-                status=provider_data.TransactionStatus.CONFIRM_REVERTED,
-                fee=provider_data.TransactionFee(limit=1000, used=1000, price_per_unit=20),
-                block_header=provider_data.BlockHeader(block_hash="block_c", block_number=1010, block_time=1600000001),
-            ),
-        }.get(i)
+                "bsc": provider_data.Transaction(
+                    txid="txid_b",
+                    status=provider_data.TransactionStatus.PENDING,
+                ),
+                "heco": provider_data.Transaction(
+                    txid="txid_c",
+                    status=provider_data.TransactionStatus.CONFIRM_REVERTED,
+                    fee=provider_data.TransactionFee(limit=1000, used=1000, price_per_unit=20),
+                    block_header=provider_data.BlockHeader(
+                        block_hash="block_c", block_number=1010, block_time=1600000001
+                    ),
+                ),
+            }.get(chain_code)
+
+        fake_provider_manager.get_transaction_by_txid.side_effect = _fake_get_transaction_by_txid
 
         manager.update_pending_actions()
 
@@ -149,6 +188,28 @@ class TestTransactionManager(TestCase):
                     "block_hash": "block_c",
                     "block_time": 1600000001,
                 },
+                {
+                    "id": 5,
+                    "txid": "txid_d",
+                    "chain_code": "eth",
+                    "coin_code": "eth",
+                    "status": data.TxActionStatus.REPLACED,
+                    "fee_used": decimal.Decimal(0),
+                    "block_number": None,
+                    "block_hash": None,
+                    "block_time": None,
+                },
+                {
+                    "id": 6,
+                    "txid": "txid_e",
+                    "chain_code": "eth",
+                    "coin_code": "eth",
+                    "status": data.TxActionStatus.REPLACED,
+                    "fee_used": decimal.Decimal(0),
+                    "block_number": None,
+                    "block_hash": None,
+                    "block_time": None,
+                },
             ],
             [
                 {
@@ -166,7 +227,14 @@ class TestTransactionManager(TestCase):
             ],
         )
         fake_provider_manager.get_transaction_by_txid.assert_has_calls(
-            [call('bsc', 'txid_b'), call('eth', 'txid_a'), call('heco', 'txid_c')]
+            [
+                call("bsc", "txid_b"),
+                call("eth", "txid_a"),
+                call("eth", "txid_d"),
+                call("eth", "txid_e"),
+                call("heco", "txid_c"),
+            ],
+            any_order=True,
         )
 
     def test_unique_indexes_of_tx_action(self):

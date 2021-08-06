@@ -54,7 +54,7 @@ def bulk_create(actions: Iterable[TxAction]):
     return TxAction.bulk_create(actions, 10)
 
 
-def on_actions_confirmed(
+def on_transaction_confirmed(
     chain_code: str,
     txid: str,
     status: TxActionStatus,
@@ -77,6 +77,20 @@ def on_actions_confirmed(
         .where(TxAction.chain_code == chain_code, TxAction.txid == txid)
         .execute()
     )
+
+
+def query_actions_by_txid(chain_code: str, txid: str, index: int = None) -> List[TxAction]:
+    expression = [TxAction.chain_code == chain_code, TxAction.txid == txid]
+    index is None or expression.append(TxAction.index == index)
+    models = TxAction.select().where(*expression).order_by(TxAction.index.asc())
+    return list(models)
+
+
+def query_actions_by_nonce(chain_code: str, from_address: str, nonce: int) -> List[TxAction]:
+    models = TxAction.select().where(
+        TxAction.chain_code == chain_code, TxAction.from_address == from_address, TxAction.nonce == nonce
+    )
+    return list(models)
 
 
 def update_actions_status(

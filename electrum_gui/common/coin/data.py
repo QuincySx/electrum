@@ -33,6 +33,7 @@ class ChainInfo(DataClassMixin):
         bip44.BIP44Level.ADDRESS_INDEX
     )  # Derive to 'ADDRESS_INDEX' as default (options: ACCOUNT, CHANGE, ADDRESS_INDEX)
     default_address_encoding: Optional[str] = None
+    nonce_supported: bool = False
     chain_id: Optional[str] = None  # optional, identify multi forked chains by chain_id (use by eth etc.)
     bip44_purpose_options: dict = field(default_factory=dict)
     fee_price_decimals_for_legibility: int = 0  # (gwei in eth etc.)

@@ -5,6 +5,7 @@ import time
 from decimal import Decimal
 from typing import Iterable, List, Literal, Optional, Tuple
 
+from electrum_gui.common.basic.functional.require import require
 from electrum_gui.common.basic.functional.timing import timing_logger
 from electrum_gui.common.basic.functional.wraps import error_interrupter, timeout_lock
 from electrum_gui.common.basic.orm.database import db
@@ -73,7 +74,7 @@ def update_pending_actions(chain_code: Optional[str] = None, address: Optional[s
             if tx.fee is None or tx.block_header is None or action_status is None:
                 continue
 
-            daos.on_actions_confirmed(
+            _on_transaction_confirmed(
                 chain_code=chain_code,
                 txid=tx.txid,
                 status=action_status,
@@ -86,8 +87,8 @@ def update_pending_actions(chain_code: Optional[str] = None, address: Optional[s
             logger.info(
                 f"TxAction confirmed. chain_code: {chain_code}, txid: {tx.txid}, action_status: {action_status}"
             )
-        except Exception:
-            logger.exception(f"Error in updating actions. chain_code: {chain_code}, txid: {tx.txid}")
+        except Exception as e:
+            logger.exception(f"Error in updating actions. chain_code: {chain_code}, txid: {tx.txid}, error: {repr(e)}")
 
     unconfirmed_actions = [i for i in pending_actions if i.txid not in confirmed_txids]
     if not unconfirmed_actions:
@@ -109,8 +110,10 @@ def _query_transactions_of_chain(txids_of_chain: Iterable[Tuple[str, str]]) -> I
         for (_, txid) in group:
             try:
                 yield chain_code, provider_manager.get_transaction_by_txid(chain_code, txid)
-            except Exception:
-                logger.exception(f"Error in getting transaction by txid. chain_code: {chain_code}, txid: {txid}")
+            except Exception as e:
+                logger.exception(
+                    f"Error in getting transaction by txid. chain_code: {chain_code}, txid: {txid}, error: {repr(e)}"
+                )
 
 
 def _search_txs_by_address(
@@ -125,10 +128,10 @@ def _search_txs_by_address(
         transactions = provider_manager.search_txs_by_address(chain_code, address, paginate=paginate)
 
         return transactions
-    except Exception:
+    except Exception as e:
         logger.exception(
             f"Error in searching txs by address. chain_code: {chain_code}, "
-            f"address: {address}, last_confirmed_action: {last_confirmed_action}"
+            f"address: {address}, last_confirmed_action: {last_confirmed_action}, error: {repr(e)}"
         )
         return []
 
@@ -209,11 +212,11 @@ def _search_actions_from_provider_by_address(
 
     try:
         transactions = provider_manager.search_txs_by_address(chain_code, address, paginate=paginate)
-    except Exception:
+    except Exception as e:
         transactions = []
         logger.exception(
             f"Error in searching txs by address form provider. "
-            f"chain_code: {chain_code}, address: {address}, paginate: {paginate}"
+            f"chain_code: {chain_code}, address: {address}, paginate: {paginate}, error: {repr(e)}"
         )
 
     transactions = (i for i in transactions if i.status in TX_TO_ACTION_STATUS_DIRECT_MAPPING)
@@ -308,7 +311,7 @@ def _sync_actions_by_address(chain_code: str, address: str, archived_id: int, re
     with db.atomic():
         if to_be_confirmed_actions:
             for txid, action in to_be_confirmed_actions.items():
-                daos.on_actions_confirmed(
+                _on_transaction_confirmed(
                     chain_code=chain_code,
                     txid=txid,
                     status=action.status,
@@ -332,6 +335,46 @@ def _sync_actions_by_address(chain_code: str, address: str, archived_id: int, re
             expand_count += len(to_be_created_actions)
 
     return expand_count
+
+
+def _on_transaction_confirmed(
+    chain_code: str,
+    txid: str,
+    status: TxActionStatus,
+    fee_used: Decimal,
+    block_number: int,
+    block_hash: str,
+    block_time: int,
+    archived_id: int = None,
+):
+    require(status in (TxActionStatus.CONFIRM_SUCCESS, TxActionStatus.CONFIRM_REVERTED))
+
+    daos.on_transaction_confirmed(
+        chain_code=chain_code,
+        txid=txid,
+        status=status,
+        fee_used=fee_used,
+        block_hash=block_hash,
+        block_number=block_number,
+        block_time=block_time,
+        archived_id=archived_id,
+    )
+
+    chain_info = coin_manager.get_chain_info(chain_code)
+    if chain_info.nonce_supported is not True:
+        return
+
+    actions = daos.query_actions_by_txid(chain_code, txid, index=0)
+    main_action = actions[0] if actions and actions[0].nonce >= 0 else None
+    if not main_action:
+        return
+
+    same_nonce_actions = daos.query_actions_by_nonce(chain_code, main_action.from_address, main_action.nonce)
+    replaced_action_txids = {
+        i.txid for i in same_nonce_actions if i.txid != txid and i.status == TxActionStatus.PENDING
+    }
+    for txid in replaced_action_txids:
+        daos.update_actions_status(chain_code, txid, TxActionStatus.REPLACED)
 
 
 def delete_actions_by_addresses(chain_code: str, addresses: List[str]) -> int:
