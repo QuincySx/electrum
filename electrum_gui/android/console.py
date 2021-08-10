@@ -18,6 +18,7 @@ from operator import attrgetter
 from os.path import exists, join
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
+import base58
 import eth_abi
 import eth_utils
 from eth_account import account as eth_account_account
@@ -68,7 +69,8 @@ from electrum.wallet import Imported_Wallet, Standard_Wallet, Wallet
 from electrum.wallet_db import WalletDB
 from electrum_gui.android import hardware, helpers, wallet_context
 from electrum_gui.common import the_begging
-from electrum_gui.common.basic import api, bip44, exceptions
+from electrum_gui.common.basic import api, bip44
+from electrum_gui.common.basic import exceptions as basic_exceptions
 from electrum_gui.common.basic.functional import json_encoders
 from electrum_gui.common.basic.functional import text as text_utils
 from electrum_gui.common.basic.orm import database as orm_database
@@ -90,6 +92,7 @@ from electrum_gui.common.transaction import manager as transaction_manager
 from electrum_gui.common.wallet import manager as wallet_manager
 
 from ..common.basic.functional.require import require
+from ..common.secret.data import CurveEnum
 from .create_wallet_info import CreateWalletInfo
 from .derived_info import DerivedInfo
 from .migrating import GeneralWallet, is_coin_migrated
@@ -3194,24 +3197,20 @@ class AndroidCommands(commands.Commands):
     @api.api_entry()
     def export_privkey(self, password: str) -> str:
         """
-        Export privkey for the first receiving address
+        Export private key for the first receiving address
         :param password: password as string
-        :return: private as string
-
-        .. code-block:: python
-            testcommond.load_all_wallet()
-            testcommond.select_wallet("BTC-1")
-            priv = testcommond.export_privkey(password)
-            if the wallet you select is "btc" wallet, you will get:
-            'cVJo3o48E6j8xxbTQprEzaCWQJ7aL3Y59R2W1owzJnX8NBh5AXnt'
-
-            if the wallet you select is "eth" wallet, you will get:
-            '0x31271366888ccad468157770734b5ac0d98a9363d4b229767a28c44fde445f51'
+        :return: if coin in btc class: return private key with WIF format
+                 if coin in eth class: return private key as hex string without 0x prefix
+                 if coin in sol class: return private key along with corresponding public key as hex string without 0x prefix
         """
         address = self.wallet.get_addresses()[0]
         priv = self.wallet.export_private_key(address, password=password)
         if -1 != priv.find(":"):
             priv = priv.split(":")[1]
+        chain_affinity = _get_chain_affinity(self.wallet.coin)
+        if chain_affinity == codes.SOL:
+            pubkey = secret_manager.raw_create_key_by_prvkey(CurveEnum.ED25519, bytes.fromhex(priv)).get_pubkey().hex()
+            priv = priv + pubkey
         return priv
 
     @api.api_entry()
@@ -3456,7 +3455,7 @@ class AndroidCommands(commands.Commands):
         if flag == "seed":
             is_checksum, is_wordlist = keystore.bip39_is_checksum_valid(data)
             if not keystore.is_seed(data) and not is_checksum:
-                raise exceptions.InvalidMnemonicFormat()
+                raise basic_exceptions.InvalidMnemonicFormat()
             return
         chain_affinity = _get_chain_affinity(coin)
         if coin and is_coin_migrated(coin):
@@ -3468,17 +3467,17 @@ class AndroidCommands(commands.Commands):
                     data = bytes.fromhex(data)
                     secret_manager.verify_key(chain_info.curve, prvkey=data)
                 except ValueError:
-                    raise exceptions.UnavailablePrivateKey()
+                    raise basic_exceptions.UnavailablePrivateKey()
             elif flag == "public":
                 try:
                     data = bytes.fromhex(data)
                     secret_manager.verify_key(chain_info.curve, pubkey=data)
                 except ValueError:
-                    raise exceptions.UnavailablePublicKey()
+                    raise basic_exceptions.UnavailablePublicKey()
             elif flag == "address":
                 validation = provider_manager.verify_address(chain_code, data)
                 if not validation.is_valid:
-                    raise exceptions.IncorrectAddress()
+                    raise basic_exceptions.IncorrectAddress()
         elif chain_affinity == "btc":
             if flag == "private":
                 try:
@@ -3486,36 +3485,36 @@ class AndroidCommands(commands.Commands):
                 except BaseException:
                     private_key = keystore.get_private_keys(data, allow_spaces_inside_key=False)
                     if private_key is None:
-                        raise exceptions.UnavailablePrivateKey()
+                        raise basic_exceptions.UnavailablePrivateKey()
             elif flag == "address":
                 try:
                     ecc.ECPubkey(bfh(data))
                 except Exception:
                     if not keystore.is_xpub(data) and not bitcoin.is_address(data):
-                        raise exceptions.UnavailableBtcAddr()
+                        raise basic_exceptions.UnavailableBtcAddr()
         elif chain_affinity == "eth":
             if flag == "private":
                 try:
                     keys.PrivateKey(HexBytes(data))
                 except BaseException:
-                    raise exceptions.UnavailablePrivateKey()
+                    raise basic_exceptions.UnavailablePrivateKey()
             elif flag == "keystore":
                 try:
                     eth_account_account.Account.decrypt(json.loads(data), password).hex()
                 except (TypeError, KeyError, NotImplementedError):
-                    raise exceptions.InvalidKeystoreFormat()
+                    raise basic_exceptions.InvalidKeystoreFormat()
                 except BaseException:
-                    raise exceptions.InvalidPassword()
+                    raise basic_exceptions.InvalidPassword()
 
             elif flag == "public":
                 try:
                     uncom_key = get_uncompressed_key(data)
                     keys.PublicKey(HexBytes(uncom_key[2:]))
                 except BaseException:
-                    raise exceptions.UnavailablePublicKey()
+                    raise basic_exceptions.UnavailablePublicKey()
             elif flag == "address":
                 if not eth_utils.is_address(data):
-                    raise exceptions.IncorrectAddress()
+                    raise basic_exceptions.IncorrectAddress()
         else:
             raise util.UnsupportedCurrencyCoin()
 
@@ -3673,12 +3672,42 @@ class AndroidCommands(commands.Commands):
             elif chain_affinity == "eth":
                 wallet = Imported_Eth_Wallet.from_pubkey_or_addresses(coin, self.config, addresses)
             else:
-                raise util.UnsupportedCurrencyCoin()
+                raise basic_exceptions.UnsupportedCurrencyCoin()
         elif is_coin_migrated(coin) and (privkeys is not None or keystores is not None):
             wallet_type = f"{coin}-private-standard"
             if keystores is not None:
                 wallet = GeneralWallet.from_keystore(name, coin, self.config, keystores, keystore_password, password)
             else:
+                if chain_affinity == codes.SOL:
+                    if "[" in privkeys:
+                        # assume bytearray(to be compatible with Sollet wallet)
+                        try:
+                            keypair = bytes(json.loads(privkeys))
+                        except Exception as e:
+                            raise basic_exceptions.PrivateKeyNotSupportedFormat(other_info=str(e))
+                    else:
+                        try:
+                            # assume base58 encoded bytes as string(to be compatible with Phantom wallet)
+                            keypair = base58.b58decode(privkeys)
+                        except ValueError:
+                            # maybe hex string
+                            try:
+                                keypair = bytes.fromhex(privkeys)
+                            except Exception as e:
+                                raise basic_exceptions.PrivateKeyNotSupportedFormat(other_info=str(e))
+                    prvkey = keypair[:32]
+                    pubkey = keypair[32:]
+                    excepted_pubkey = secret_manager.raw_create_key_by_prvkey(CurveEnum.ED25519, prvkey).get_pubkey()
+                    if pubkey != excepted_pubkey:
+                        raise basic_exceptions.KeypairMismatchedError(
+                            other_info="Invalid keypair with mismatch private key and pubkey key value"
+                        )
+                    privkeys = prvkey
+                else:
+                    try:
+                        privkeys = bytes.fromhex(privkeys.split()[0])
+                    except Exception as e:
+                        raise basic_exceptions.PrivateKeyNotSupportedFormat(other_info=str(e))
                 wallet = GeneralWallet.from_prvkeys(name, coin, self.config, privkeys, password)
         elif privkeys is not None and chain_affinity == "btc":
             wallet_type = f"{coin}-private-standard"
@@ -3732,7 +3761,7 @@ class AndroidCommands(commands.Commands):
                     seed,
                     passphrase,
                     PURPOSE_TO_ADDRESS_TYPE.get(
-                        int(helpers.get_path_info(bip39_derivation, PURPOSE_POS)) or "p2wpkh-p2sh"
+                        int(helpers.get_path_info(bip39_derivation, PURPOSE_POS)), "p2wpkh-p2sh"
                     ),
                     bip39_derivation,
                 )
@@ -3778,9 +3807,9 @@ class AndroidCommands(commands.Commands):
                     wallet_type=wallet_type,
                     bip39_derivation=bip39_derivation,
                 )
-                raise util.ReplaceWatchOnlyWallet(other_info=wallet.identity)
+                raise basic_exceptions.ReplaceWatchOnlyWallet(other_info=wallet.identity)
             else:
-                raise util.FileAlreadyExist()
+                raise basic_exceptions.FileAlreadyExist()
         return wallet, wallet_type, new_seed
 
     def _create(
@@ -3807,7 +3836,7 @@ class AndroidCommands(commands.Commands):
             if addresses is None:
                 self.check_password(password)
         except BaseException as e:
-            raise e
+            raise basic_exceptions.InvalidPassword(other_info=str(e))
 
         wallet, wallet_type, new_seed = self._create_and_check_wallet(
             name,
@@ -3838,7 +3867,7 @@ class AndroidCommands(commands.Commands):
         }
         return json.dumps(ret)
 
-    @api.api_entry()
+    @api.api_entry(force_version=api.Version.V2)
     @orm_database.db.atomic()
     def create(  # noqa
         self,
@@ -3849,7 +3878,7 @@ class AndroidCommands(commands.Commands):
         bip39_derivation=None,
         master=None,
         addresses=None,
-        privkeys=None,
+        privkeys: str = None,
         hd=False,
         purpose=49,
         coin="btc",
@@ -3860,20 +3889,21 @@ class AndroidCommands(commands.Commands):
     ):
         """
         Create or restore a new wallet
-        :param name: Wallet name as string
-        :param password: Password ans string
-        :param seed: Mnemonic word as string
-        :param passphrase:Customised passwords as string
-        :param bip39_derivation:Not for now
-        :param master:Not for now
-        :param addresses:To create a watch-only wallet you need
-        :param privkeys:To create a wallet with a private key you need
-        :param hd:Not for app
-        :param purpose:BTC address type as (44/49/84), for BTC only
-        :param coin:"btc"/"eth" as string to specify whether to create a BTC/ETH wallet
-        :param keystores:as string for ETH only
-        :param strength:Length of the　Mnemonic word as (128/256)
-        :param is_customized_path: Set to true when the user-defined path is modified
+        :param name: wallet name as string
+        :param password: password ans string
+        :param seed: mnemonic word as string
+        :param passphrase: customised passwords as string
+        :param bip39_derivation: not for now
+        :param master: not for now
+        :param addresses: create a watch-only wallet when provided
+        :param privkeys: create a wallet with a private key or keypair when provided
+                Note: if sol is specified accept three keypair format(hex, base58, bytearray)
+        :param hd: not for app
+        :param purpose: BTC address type as (44/49/84), for BTC only
+        :param coin: btc/eth/sol/cfx/stc etc... as string to specify the coin to be create.
+        :param keystores: as string for eth class
+        :param strength: length of the　Mnemonic word as (128/256)
+        :param is_customized_path: is user-defined path or not
         :return: json like {'seed':''
                             'wallet_info':''
                             'derived_info':''}
