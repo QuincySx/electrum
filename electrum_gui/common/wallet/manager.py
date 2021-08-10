@@ -10,6 +10,7 @@ from typing import Iterable, List, Tuple, Union
 import eth_account
 
 from electrum_gui.common.basic import bip44
+from electrum_gui.common.basic import exceptions as basic_exceptions
 from electrum_gui.common.basic.functional.require import require
 from electrum_gui.common.basic.functional.timing import timing_logger
 from electrum_gui.common.basic.orm import database as orm_database
@@ -89,7 +90,7 @@ def import_watchonly_wallet_by_address(name: str, chain_code: str, address: str)
     address_validation = provider_manager.verify_address(chain_code, address)
 
     if not address_validation.is_valid:
-        raise exceptions.AddressInvalidException(chain_code, address)
+        raise basic_exceptions.IncorrectAddress(other_info=f"chain_code: {chain_code}, address: {address}")
 
     return _create_default_wallet(
         chain_code,

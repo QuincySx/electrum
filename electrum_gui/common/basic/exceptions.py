@@ -115,6 +115,26 @@ class PythonLibNotStart(OneKeyException):
     key = "msg__python_lib_not_start_please_restart_app"
 
 
+class KeyStoreFormatError(OneKeyException):
+    key = "msg__incorrect_keystore_format"
+
+
+class PrivateKeyNotSupportedFormat(OneKeyException):
+    key = "msg__private_key_format_not_supported"
+
+
+class KeypairMismatchedError(OneKeyException):
+    key = "msg__keypair_mismatched_error"
+
+
+class KeyStoreIncorrectPassword(OneKeyException):
+    key = "msg__incorrect_keystore_password"
+
+
+class InvalidExtendSecret(OneKeyException):
+    key = "msg__invalid_extend_secret"
+
+
 #####################################
 #      hardware exceptions          #
 #####################################

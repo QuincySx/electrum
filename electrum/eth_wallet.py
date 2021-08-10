@@ -54,10 +54,11 @@ from electrum import (
     util,
     wallet_db,
 )
-from electrum_gui.android import helpers
+from electrum_gui.common.basic import exceptions as basic_exceptions
 from electrum_gui.common.basic.functional import text as text_utils
 from electrum_gui.common.coin import manager as coin_manager
 from electrum_gui.common.provider import manager as provider_manager
+from electrum_gui.common.wallet import utils as wallet_utils
 
 _logger = logging.get_logger(__name__)
 
@@ -855,7 +856,7 @@ class Imported_Eth_Wallet(Simple_Eth_Wallet):
         good_addrs, _bad_addrs = wallet.import_addresses(addresses, write_to_disk=False)
         # FIXME tell user about bad_inputs
         if not good_addrs:
-            raise BaseException(i18n._("No address available."))
+            raise basic_exceptions.IncorrectAddress()
         return wallet
 
     @classmethod
@@ -880,7 +881,7 @@ class Imported_Eth_Wallet(Simple_Eth_Wallet):
         good_addrs, _bad_keys = wallet.import_private_keys(keys, None, write_to_disk=False)
         # FIXME tell user about bad_inputs
         if not good_addrs:
-            raise BaseException(i18n._("No private key available."))
+            raise basic_exceptions.PrivateKeyNotSupportedFormat()
         return wallet
 
     @classmethod
@@ -928,12 +929,7 @@ class Imported_Eth_Wallet(Simple_Eth_Wallet):
 
     @classmethod
     def from_keystores(cls, coin: str, config: simple_config.SimpleConfig, keystores: str, password: str):
-        try:
-            privkeys = eth_account.Account.decrypt(keystores, password).hex()
-        except (TypeError, KeyError, NotImplementedError, json.decoder.JSONDecodeError):
-            raise util.InvalidKeystoreFormat()
-        except Exception as e:
-            raise util.InvalidPassword()
+        privkeys = wallet_utils.decrypt_eth_keystore(keystores, password).hex()
         return cls.from_privkeys(coin, config, privkeys)
 
     def __init__(self, db, storage, *, config):

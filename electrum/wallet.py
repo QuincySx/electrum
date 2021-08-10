@@ -27,14 +27,9 @@
 #   - Multisig_Wallet: several HD keystores, M-of-N OP_CHECKMULTISIG scripts
 import base64
 import os
-import sys
 import random
 import time
-import json
 import copy
-import errno
-import traceback
-import operator
 from functools import partial
 from collections import defaultdict
 from numbers import Number
@@ -45,6 +40,7 @@ import itertools
 
 from aiorpcx import TaskGroup
 
+from electrum_gui.common.basic import exceptions as basic_exceptions
 from .i18n import _
 from .bip32 import BIP32Node, convert_bip32_intpath_to_strpath, convert_bip32_path_to_list_of_uint32
 from .crypto import sha256
@@ -54,11 +50,11 @@ from .util import (NotEnoughFunds, UserCancelled, profiler,
                    WalletFileException, BitcoinException, MultipleSpendMaxTxOutputs,
                    InvalidPassword, format_time, timestamp_to_datetime, Satoshis, UserCancel,
                    Fiat, bfh, bh2u, TxMinedInfo, quantize_feerate, create_bip21_uri, OrderedDictWithIndex,
-                   FileAlreadyExist, UnavailablePrivateKey, InvalidBip39Seed)
+                   FileAlreadyExist)
 from .util import get_backup_dir
 from .simple_config import SimpleConfig
 from .bitcoin import COIN, TYPE_ADDRESS
-from .bitcoin import is_address, address_to_script, is_minikey, relayfee, dust_threshold
+from .bitcoin import is_address, is_minikey, relayfee, dust_threshold
 from .crypto import sha256d
 from . import keystore
 from .keystore import load_keystore, Hardware_KeyStore, KeyStore, KeyStoreWithMPK, AddressIndexGeneric
@@ -66,20 +62,19 @@ from .util import multisig_type
 from .storage import StorageEncryptionVersion, WalletStorage
 from .wallet_db import WalletDB
 from . import transaction, bitcoin, coinchooser, paymentrequest, ecc, bip32
-from .transaction import (Transaction, TxInput, UnknownTxinType, TxOutput,
+from .transaction import (Transaction, TxInput, UnknownTxinType,
                           PartialTransaction, PartialTxInput, PartialTxOutput, TxOutpoint)
 from .plugin import run_hook
 from .address_synchronizer import (AddressSynchronizer, TX_HEIGHT_LOCAL,
                                    TX_HEIGHT_UNCONF_PARENT, TX_HEIGHT_UNCONFIRMED, TX_HEIGHT_FUTURE)
 from .invoices import Invoice, OnchainInvoice, LNInvoice
-from .invoices import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED, PR_INFLIGHT, PR_TYPE_ONCHAIN, PR_TYPE_LN
+from .invoices import PR_PAID, PR_UNPAID, PR_UNKNOWN, PR_EXPIRED, PR_TYPE_ONCHAIN, PR_TYPE_LN
 from .contacts import Contacts
 from .interface import NetworkException
 from .mnemonic import Mnemonic
 from .logging import get_logger
 from .lnworker import LNWallet, LNBackups
 from electrum_gui.android import helpers
-from .paymentrequest import PaymentRequest
 from .util import read_json_file, write_json_file, UserFacingException
 if TYPE_CHECKING:
     from .network import Network
@@ -2291,7 +2286,7 @@ class Imported_Wallet(Simple_Wallet):
         good_addrs, _bad_addrs = wallet.import_addresses(addresses, write_to_disk=False)
         # FIXME tell user about bad_inputs
         if not good_addrs:
-            raise BaseException(_("No address available."))
+            raise basic_exceptions.IncorrectAddress()
         return wallet
 
     @classmethod
@@ -2299,8 +2294,8 @@ class Imported_Wallet(Simple_Wallet):
         try:
             pubkey = ecc.ECPubkey(bfh(pubkey)).get_public_key_hex()
             addresses = [bitcoin.pubkey_to_address("p2wpkh", pubkey)]
-        except Exception:
-            raise BaseException(_("Incorrect pubkey."))
+        except Exception as e:
+            raise basic_exceptions.UnavailablePublicKey(other_info=str(e))
         return cls._from_addresses(coin, config, addresses)
 
     @classmethod
@@ -2371,7 +2366,7 @@ class Imported_Wallet(Simple_Wallet):
                 privkeys = f"{addr_type}:{privkeys}"
             keys = keystore.get_private_keys(privkeys, allow_spaces_inside_key=False)
             if keys is None:
-                raise BaseException(UnavailablePrivateKey())
+                raise basic_exceptions.UnavailablePrivateKey()
 
         db = WalletDB("", manual_upgrades=False)
         db.put("keystore", keystore.Imported_KeyStore({}).dump())
@@ -2380,7 +2375,7 @@ class Imported_Wallet(Simple_Wallet):
         good_addrs, _bad_keys = wallet.import_private_keys(keys, None, write_to_disk=False)
         # FIXME tell user about bad_inputs
         if not good_addrs:
-            raise BaseException(_("No private key available."))
+            raise basic_exceptions.UnavailablePrivateKey()
         return wallet
 
     def __init__(self, db, storage, *, config):
@@ -2831,7 +2826,10 @@ class Standard_Wallet(Simple_Deterministic_Wallet):
 
     @classmethod
     def from_master_key(cls, coin: str, config: SimpleConfig, master_key: str):
-        ks = keystore.from_master_key(master_key)
+        try:
+            ks = keystore.from_master_key(master_key)
+        except Exception as e:
+            raise basic_exceptions.InvalidExtendSecret(other_info=str(e))
         return cls._from_keystore(coin, config, ks)
 
     def pubkeys_to_address(self, pubkeys):

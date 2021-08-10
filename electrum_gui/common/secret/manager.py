@@ -1,6 +1,7 @@
 import logging
 from typing import List, Tuple
 
+from electrum_gui.common.basic import exceptions as basic_exceptions
 from electrum_gui.common.basic.functional.require import require
 from electrum_gui.common.basic.orm.database import db
 from electrum_gui.common.secret import daos, encrypt, exceptions, registry, utils
@@ -26,7 +27,14 @@ def verify_key(curve: CurveEnum, prvkey: bytes = None, pubkey: bytes = None):
             _verify_signing_process(ins)
     except Exception:
         logger.exception("Error in verify key.")
-        raise ValueError(f"Illegal pubkey. curve: {curve.name}, pubkey: {pubkey.hex()}")
+        if prvkey:
+            raise basic_exceptions.UnavailablePrivateKey(
+                other_info=f"Illegal private key. curve: {curve.name}, prvkey: {prvkey.hex()}"
+            )
+        else:
+            raise basic_exceptions.UnavailablePublicKey(
+                other_info=f"Illegal public key. curve: {curve.name}, pubkey: {pubkey.hex()}"
+            )
 
 
 def _verify_hd_wif_key(curve: CurveEnum, xkey: str):
