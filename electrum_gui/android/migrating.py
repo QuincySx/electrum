@@ -74,12 +74,11 @@ class GeneralWallet(object):
 
     @classmethod
     def from_prvkeys(
-        cls, name: str, coin: str, config: simple_config.SimpleConfig, prvkeys: str, password: str
+        cls, name: str, coin: str, config: simple_config.SimpleConfig, prvkeys: bytes, password: str
     ) -> 'GeneralWallet':
         chain_code = coin
-        prvkey = prvkeys.split()[0]
         wallet_info = wallet_manager.import_standalone_wallet_by_prvkey(
-            name=name, chain_code=chain_code, prvkey=bytes.fromhex(prvkey), password=password
+            name=name, chain_code=chain_code, prvkey=prvkeys, password=password
         )
 
         my_db = cls.create_wallet_db(coin, f"{coin}_imported", wallet_info)
