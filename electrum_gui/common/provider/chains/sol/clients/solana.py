@@ -50,7 +50,7 @@ class Solana(ClientInterface, SearchTransactionMixin):
         return Address(address=address, balance=balance, existing=existing)
 
     def get_transaction_by_txid(self, txid: str) -> Transaction:
-        result = self.rpc.call("getConfirmedTransaction", [txid, "jsonParsed"])
+        result = self.rpc.call("getTransaction", [txid, "jsonParsed"])
         return self._parse_transactions(result, txid)
 
     def get_fees(self) -> Tuple[int, str]:
@@ -103,7 +103,7 @@ class Solana(ClientInterface, SearchTransactionMixin):
         _batch_body = []
         for transaction in response:
             txid = transaction["signature"]
-            _batch_body.append(("getConfirmedTransaction", [txid, "jsonParsed"]))
+            _batch_body.append(("getTransaction", [txid, "jsonParsed"]))
         results = self.rpc.batch_call(_batch_body, timeout=20)
         txs = []
         for i, res in enumerate(results):
